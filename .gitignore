@@ -21,3 +21,6 @@ logs/
 
 # Full-size originals of the demo photos (the shrunk copies in docs/demo-photos/ are the ones committed)
 docs/demo-photos/local/
+
+# Raw screen recordings for the demo video (large; the finished video is hosted elsewhere).
+docs/demo-video/raw/

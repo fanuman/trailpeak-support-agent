@@ -47,10 +47,9 @@ OpenAI API key supplied entirely by AWS Secrets Manager via an IAM task role —
 
 ## Demo
 
-<!-- TODO: add the demo video link here when it is ready:
-[![Watch the demo](docs/images/demo-poster.png)](VIDEO_URL) -->
+[![Watch the 3-minute demo](docs/images/demo-poster.png)](https://drive.google.com/file/d/1zpXfgcKm5tuqJWjYopijKvnInnla-8HL/view?usp=sharing)
 
-*Demo video: coming soon.*
+A captioned walkthrough: a policy question answered twice (the second time from the cache), a jacket-and-poles total with live stock, a follow-up question, then photo questions (a packing list, a worn boot and a tent), ending with the path every question takes.
 
 ### The web UI
 
@@ -102,6 +101,10 @@ defined once for Docker Compose (local) and once for ECS/Fargate (Terraform), an
 for Minikube.
 
 ### The path of one question
+
+![What happens to every question, in one picture](docs/images/question-flow.png)
+
+*The same path as the animation at the end of the demo video. The picture below shows the same steps in more detail.*
 
 ![The path of one question through /ask/stream](docs/images/question-path.svg)
 
