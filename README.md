@@ -19,7 +19,7 @@ sources it actually used.
 streaming protocol was rebuilt (typed events: `step`, `product`, `token`, `done`, `error`), the agent loop was
 collapsed into one streamed loop, a plain question went from 2 model calls to 1, the source chips under an answer
 now show only the files the model says it used, the pipeline was split into small modules, the suite grew to
-92 tests, API errors became generic (details are logged, never returned), CORS is off unless you ask for it,
+100 tests, API errors became generic (details are logged, never returned), CORS is off unless you ask for it,
 the open `/chat` route was removed, `/cost` now reports what every model call has really cost,
 the cache replays its sources, and the assistant remembers the last three exchanges so follow-ups work.
 The FreightLens capstone is a separate repository:
@@ -117,7 +117,7 @@ inside a streamed token can never break the framing.
 ### Conversation memory
 
 A model remembers nothing between requests, so memory means sending the earlier messages again. Here the **browser keeps the history**
-and sends the last 6 messages (3 exchanges) with each question; the server stays stateless, so it works the same on several ECS tasks or Lambda,
+and sends the last 6 messages (3 exchanges; `MAX_HISTORY_MESSAGES`, see [Settings](#settings)) with each question; the server stays stateless, so it works the same on several ECS tasks or Lambda,
 with no session ids and no stored chats. "New chat" reloads the page and starts empty. Failed or stopped answers are not remembered.
 
 Search has a second problem: "what about the blue one?" embeds to nothing useful. So for a follow-up only, `RAGPipeline._rewrite()` makes one
@@ -132,7 +132,7 @@ still sees the real conversation: the system prompt, the earlier messages, and t
 - **Cache rule.** A follow-up may be served from the cache (that answer was written for a standalone question), but it never writes to it,
   because an answer written with the conversation in view may lean on it ("yes, that one too").
 - **Untrusted input.** The history comes from the browser, so the API accepts only `user` and `assistant` roles, 1 to 2000 characters per message and
-  at most 6 messages (anything else is a `422`). The rewrite is used only as a search string and a cache key, never as an instruction.
+  at most 6 messages (the defaults of `MAX_MESSAGE_CHARS` and `MAX_HISTORY_MESSAGES`; anything else is a `422`). The rewrite is used only as a search string and a cache key, never as an instruction.
 
 ### Where the source chips come from
 
@@ -206,6 +206,7 @@ local development without AWS credentials configured still works.
 | `GET /health` | Liveness check: `{"status": "ok"}` |
 | `POST /ask/stream` | The main endpoint: the question's answer as Server-Sent Events (table above). Body: `message` and an optional `history` (up to 6 `{role, content}` messages, oldest first). Rate limited to 10/minute |
 | `POST /ask` | The same question (and optional `history`) answered in one JSON response (`reply`, `sources`, `used_fallback`, `from_cache`). Rate limited to 10/minute. Used by the evaluation harness |
+| `GET /config` | The two limits the web page has to match (`max_history_messages`, `max_message_chars`), read from the settings below, so they live in one place |
 | `GET /cost` | Totals for every model call the app has made, read from `logs/cost_log.jsonl`: `total_calls`, `total_cost_usd`, `cost_if_gpt4o_usd` and `by_stage` (same numbers as `python -m src.cost.report`). Public like `/health`, and totals only. On ECS the log lives in the container, so it covers spend since the task last started |
 | `GET /` | The web UI (static files, mounted last so it cannot shadow an API route) |
 
@@ -290,6 +291,28 @@ Also in the repo: `infra/lambda/lambda_app.py` (a scoped-down serverless deploym
 `infra/k8s/` (the three containers as Kubernetes Deployments and Services; see [`infra/README.md`](infra/README.md)),
 and `locustfile.py` (load testing used to verify rate limiting and caching under concurrent traffic).
 
+## Settings
+
+Every limit and tuning knob lives once, in `src/core/config.py`. Each has a default there, and an environment variable of the same name overrides it
+(put it in `.env`, which Compose reads, or in the ECS task definition). Values are read when the app starts; an invalid one (`MAX_HISTORY_MESSAGES=abc`,
+`RETRIEVAL_K=0`) stops the app with a message naming the setting. The web page does not repeat the limits it needs: it asks `GET /config` when it loads
+(it keeps built-in fallbacks for the moment before the answer arrives and for `?demo`).
+
+| Setting | Default | What it controls |
+|---|---|---|
+| `MAX_HISTORY_MESSAGES` | 6 | Earlier messages the page sends with a question (6 = 3 exchanges). `0` turns memory off |
+| `MAX_MESSAGE_CHARS` | 2000 | Longest question, and longest earlier message |
+| `RATE_LIMIT` | `10/minute` | Per client address, on `/ask` and `/ask/stream` |
+| `RETRIEVAL_K` | 5 | Chunks returned by a search |
+| `RELEVANCE_THRESHOLD` | 0.68 | A chunk farther than this is "not close"; if all are, the question is out of scope |
+| `MAX_AGENT_ITERATIONS` | 6 | Tool rounds before the loop gives up safely |
+| `CACHE_DISTANCE_THRESHOLD` | 0.05 | How close a new question must be to a saved one to reuse its answer |
+| `CACHE_TTL_SECONDS` | 3600 | How long a saved answer is kept |
+| `REWRITE_MAX_TOKENS`, `REWRITE_MAX_CHARS`, `REWRITE_CLIP_CHARS` | 120, 300, 600 | Size limits of the follow-up rewrite |
+
+The model names (`gpt-4o-mini`, `text-embedding-3-small`) are constants and not overridable: changing the embedding model would make the stored vectors
+incompatible until you re-run `ingest`.
+
 ## Security and monitoring
 
 - **Input validation.** Pydantic checks length and rejects blank input on every chat and RAG request before any paid API call.
@@ -298,7 +321,7 @@ and `locustfile.py` (load testing used to verify rate limiting and caching under
 - **Generic errors.** Clients get "Upstream error. Please try again."; the details stay in the server log.
 - **No open model endpoint.** The general-purpose `/chat` route was removed; every model call the API makes goes through the RAG pipeline.
 - **Bounded, validated history.** Only `user` and `assistant` messages, 6 at most, 2000 characters each; a client can never inject a `system` or `tool` message.
-- **CORS off by default**, and rate limiting (`slowapi`, Redis-backed) on every expensive endpoint.
+- **CORS off by default**, and rate limiting (`slowapi`, Redis-backed) on every expensive endpoint (`RATE_LIMIT`, default 10/minute).
 - **Key rotation** needs no code change; the runbook is in [`infra/README.md`](infra/README.md#rotate-the-openai-api-key).
 - **CloudWatch monitoring** (`infra/terraform/monitoring.tf`): a log metric filter turns the Secrets Manager fallback warning into an alertable metric, CPU and memory alarms watch the ECS service, an SNS email channel notifies, and a dashboard combines them. It was validated with a real fire drill (a deliberately corrupted secret), not only a `terraform apply`.
 
@@ -308,10 +331,10 @@ and `locustfile.py` (load testing used to verify rate limiting and caching under
 python -m pytest tests/
 ```
 
-92 tests, none of which call OpenAI, Chroma or Redis (they use fakes), so they run in about 3 seconds:
+100 tests, none of which call OpenAI, Chroma or Redis (they use fakes), so they run in about 3 seconds:
 `test_stream_events.py` (the pipeline's events, tools, cache, loop cap and sources), `test_sources_footer.py`
 (the footer, including text cut into pieces at every possible position), `test_sse.py` (the wire format and the generic error),
-`test_cost_summary.py` (the `/cost` totals, and that `/chat` is gone), `test_semantic_cache.py` (how the sources are saved and read back), `test_api_models.py` (what a request may contain, including the history limits), `test_inventory_tool.py` (finding a product by SKU or by name), `test_prompts.py` and `test_imports.py`.
+`test_cost_summary.py` (the `/cost` totals, and that `/chat` is gone), `test_semantic_cache.py` (how the sources are saved and read back), `test_api_models.py` (what a request may contain, including the history limits), `test_inventory_tool.py` (finding a product by SKU or by name), `test_config.py` (settings, overrides and bad values), `test_prompts.py` and `test_imports.py`.
 
 **`.github/workflows/`** — a two-job pipeline: `test` (fast import-checks) gates `build-and-push`
 (builds the Docker image, pushes to ECR tagged by both commit SHA and `latest`).
@@ -469,7 +492,7 @@ production-rag-agent/
 │   ├── cli.py
 │   ├── ingest.py
 │   ├── core/
-│   │   ├── config.py
+│   │   ├── config.py          # every setting, with environment overrides
 │   │   ├── embeddings.py
 │   │   ├── vectorstore.py
 │   │   ├── llm_client.py      # used by cli.py and the Lambda app
@@ -519,6 +542,7 @@ production-rag-agent/
 │   ├── test_prompts.py
 │   ├── test_api_models.py
 │   ├── test_inventory_tool.py
+│   ├── test_config.py
 │   ├── test_cost_summary.py
 │   ├── test_semantic_cache.py
 │   └── test_imports.py
@@ -753,7 +777,7 @@ The git tags below trace that progression; check tag history, not just the lates
 | `v1.1-week5-infra` | 5 | Docker Compose, ECS/Fargate via Terraform, semantic caching (Redis), rate limiting, load testing | ✅ |
 | `v1.2-week6-observability` | 6 | LangSmith tracing, context precision/recall, regression + A/B testing harness, fine-tuning dataset (prepared, untrained), Bedrock comparison, cost tracking | ✅ |
 | `v1.3-week7-hardening` | 7 | LangGraph Researcher + Writer pipeline; Kubernetes fundamentals + local Minikube deployment (self-healing demonstrated live); EKS fundamentals (conceptual, deliberately deferred twice); input validation + prompt-injection hardening + key rotation runbook; CloudWatch monitoring + alerting (SNS, metric filters, alarms, dashboard - validated with a real fire drill). Saturday project: orchestrator/specialist router pattern documented (not built, deferred to Week 8) | ✅ |
-| *(untagged)* | after 7 | Web UI redesign served by the API; typed SSE events; one streamed agent loop (a plain question costs 1 model call, not 2); sources footer; pipeline split into modules; generic errors and CORS off by default; conversation memory (history kept by the browser, follow-ups rewritten before searching); open `/chat` route removed, `/cost` reads the real cost log, `run_eval` bypasses the cache; the cache replays its sources; 92 tests; README and `infra/README.md` restructure | ✅ |
+| *(untagged)* | after 7 | Web UI redesign served by the API; typed SSE events; one streamed agent loop (a plain question costs 1 model call, not 2); sources footer; pipeline split into modules; generic errors and CORS off by default; conversation memory (history kept by the browser, follow-ups rewritten before searching); open `/chat` route removed, `/cost` reads the real cost log, `run_eval` bypasses the cache; the cache replays its sources; 100 tests; README and `infra/README.md` restructure | ✅ |
 
 <details>
 <summary><strong>Tech stack</strong></summary>

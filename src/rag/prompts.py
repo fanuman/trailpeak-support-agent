@@ -1,3 +1,5 @@
+from src.core.config import REWRITE_CLIP_CHARS
+
 SYSTEM_PROMPT = (
     "You are the TrailPeak Outdoors customer assistant. You only answer questions about "
     "TrailPeak's products, pricing, stock, shipping, returns, and warranty policy, using "
@@ -87,7 +89,7 @@ REWRITE_INSTRUCTION = (
     "Rewritten question: Does the SummitCarry backpack come in blue?"
 )
 
-REWRITE_CLIP = 600   # characters kept of each earlier message, to keep this call small
+REWRITE_CLIP = REWRITE_CLIP_CHARS   # characters kept of each earlier message, to keep this call small (src/core/config.py)
 
 
 def build_rewrite_messages(query, history):

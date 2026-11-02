@@ -19,7 +19,8 @@ import json
 import logging
 from openai import OpenAI
 
-from src.core.config import DEFAULT_MODEL, RELEVANCE_THRESHOLD, RETRIEVAL_K
+from src.core.config import (DEFAULT_MODEL, MAX_AGENT_ITERATIONS, RELEVANCE_THRESHOLD, RETRIEVAL_K,
+                             REWRITE_MAX_CHARS, REWRITE_MAX_TOKENS)
 from src.core.embeddings import get_embedding
 from src.core.vectorstore import get_collection
 from src.tools.inventory_tool import TOOL_SCHEMA as AVAILABILITY_SCHEMA, TOOL_FUNCTION as AVAILABILITY_FUNCTION, get_product
@@ -34,9 +35,6 @@ from src.rag.sources_footer import SourcesFooter, resolve_sources
 from langsmith import traceable
 
 logger = logging.getLogger(__name__)
-
-REWRITE_MAX_TOKENS = 120   # a rewritten question is one short line
-REWRITE_MAX_CHARS = 300
 
 CAP_MESSAGE = "I wasn't able to fully work through this request - it may need to be broken into simpler questions."
 
@@ -63,7 +61,7 @@ def _drain(events):
 
 
 class RAGPipeline:
-    def __init__(self, model=DEFAULT_MODEL, relevance_threshold=RELEVANCE_THRESHOLD, k=RETRIEVAL_K, max_iterations=6, final_answer_instruction=None, use_cache=True):
+    def __init__(self, model=DEFAULT_MODEL, relevance_threshold=RELEVANCE_THRESHOLD, k=RETRIEVAL_K, max_iterations=MAX_AGENT_ITERATIONS, final_answer_instruction=None, use_cache=True):
         self.client = OpenAI()
         self.model = model
         self.relevance_threshold = relevance_threshold

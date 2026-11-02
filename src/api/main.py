@@ -8,7 +8,8 @@ load_secret_into_env()
 
 from src.rag.pipeline import RAGPipeline
 from src.api.streaming import sse_stream
-from src.api.models import CostSummary, RagRequest, RagResponse
+from src.api.models import ClientConfig, CostSummary, RagRequest, RagResponse
+from src.core.config import MAX_HISTORY_MESSAGES, MAX_MESSAGE_CHARS, RATE_LIMIT
 from src.cost.report import summarize
 
 from fastapi import FastAPI, HTTPException
@@ -57,6 +58,12 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/config", response_model=ClientConfig)
+def client_config():
+    """The limits the web page has to match, so they are defined in one place (src/core/config.py)."""
+    return ClientConfig(max_history_messages=MAX_HISTORY_MESSAGES, max_message_chars=MAX_MESSAGE_CHARS)
+
+
 @app.get("/cost", response_model=CostSummary)
 def cost():
     """Totals for every model call the app has made, read from logs/cost_log.jsonl
@@ -70,7 +77,7 @@ def _history(rag_request):
 
 
 @app.post("/ask", response_model=RagResponse)
-@limiter.limit("10/minute")
+@limiter.limit(RATE_LIMIT)
 def ask(request: Request, rag_request: RagRequest):
     try:
         result = rag_pipeline.answer(rag_request.message, history=_history(rag_request))
@@ -86,7 +93,7 @@ def ask(request: Request, rag_request: RagRequest):
 
 
 @app.post("/ask/stream")
-@limiter.limit("10/minute")
+@limiter.limit(RATE_LIMIT)
 def ask_stream(request: Request, rag_request: RagRequest):
     return StreamingResponse(
         sse_stream(rag_pipeline.answer_stream(rag_request.message, history=_history(rag_request))),

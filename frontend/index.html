@@ -252,15 +252,27 @@
 
   let busy = false, controller = null;
 
+  // ---- limits ------------------------------------------------------------------
+  // The API owns these (src/core/config.py) and the page asks for them when it loads. The numbers here
+  // are only a fallback for the moment before the answer arrives, and for ?demo, which has no backend.
+  const limits = { maxHistory: 6, maxChars: 2000 };
+  if (!DEMO) {
+    fetch(`${API}/config`).then((r) => (r.ok ? r.json() : null)).then((c) => {
+      if (!c) return;
+      limits.maxHistory = c.max_history_messages; limits.maxChars = c.max_message_chars;
+      q.maxLength = c.max_message_chars;
+    }).catch(() => {});
+  }
+
   // ---- memory ----------------------------------------------------------------
   // The server remembers nothing between questions. This page keeps the finished exchanges and
   // sends the last few with each new question, so "what about the blue one?" can be understood.
-  // "New chat" reloads the page, which empties it. Keep MAX_HISTORY equal to the API's limit.
-  const MAX_HISTORY = 6, history = [];
+  // "New chat" reloads the page, which empties it.
+  const history = [];
   function remember(question, answer, info) {
     if (!answer || info?.fallback) return;     // nothing worth remembering
-    history.push({ role: 'user', content: question.slice(0, 2000) }, { role: 'assistant', content: answer.slice(0, 2000) });
-    history.splice(0, Math.max(0, history.length - MAX_HISTORY));
+    history.push({ role: 'user', content: question.slice(0, limits.maxChars) }, { role: 'assistant', content: answer.slice(0, limits.maxChars) });
+    history.splice(0, Math.max(0, history.length - limits.maxHistory));
   }
 
   // ---- tiny, safe markdown: paragraphs, bullets, numbers, bold, code -------

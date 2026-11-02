@@ -2,7 +2,8 @@
 import pytest
 from pydantic import ValidationError
 
-from src.api.models import MAX_HISTORY_MESSAGES, RagRequest
+from src.api.models import RagRequest
+from src.core.config import MAX_HISTORY_MESSAGES, MAX_MESSAGE_CHARS
 
 
 def exchange(n):
@@ -33,12 +34,12 @@ def test_too_much_history_is_rejected():
 
 
 def test_blank_or_huge_history_messages_are_rejected():
-    for content in ("", "   \n", "x" * 2001):
+    for content in ("", "   \n", "x" * (MAX_MESSAGE_CHARS + 1)):
         with pytest.raises(ValidationError):
             RagRequest(message="hi", history=[{"role": "user", "content": content}])
 
 
 def test_the_question_itself_is_still_checked():
-    for message in ("", "   ", "x" * 2001):
+    for message in ("", "   ", "x" * (MAX_MESSAGE_CHARS + 1)):
         with pytest.raises(ValidationError):
             RagRequest(message=message)
