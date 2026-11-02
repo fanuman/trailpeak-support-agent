@@ -1,6 +1,6 @@
-# Production RAG Agent — TrailPeak Outdoors Assistant
+# TrailPeak Support Agent — a production-style RAG agent
 
-[![CI/CD](https://github.com/fanuman/production-rag-agent/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/fanuman/production-rag-agent/actions/workflows/ci-cd.yml)
+[![CI/CD](https://github.com/fanuman/trailpeak-support-agent/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/fanuman/trailpeak-support-agent/actions/workflows/ci-cd.yml)
 
 An agent-powered RAG chatbot, built incrementally over 5+ weeks and deployed on AWS with CI/CD,
 IAM-managed secrets, semantic caching, rate limiting, infrastructure defined as code, LLM tracing,
@@ -539,7 +539,7 @@ the image is always current in ECR via the CI/CD pipeline.
 ## Project layout
 
 ```
-production-rag-agent/
+trailpeak-support-agent/
 ├── src/
 │   ├── cli.py
 │   ├── ingest.py

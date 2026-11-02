@@ -3,6 +3,9 @@
 How to deploy, rotate, and tear down the three-container stack (`app`, `chroma`, `redis`). The main
 [README](../README.md) explains what the system is; this file is the step-by-step part.
 
+> The repository was renamed to `trailpeak-support-agent`. The AWS resources keep their original
+> `production-rag-agent-*` names, because renaming them would make Terraform destroy and recreate them.
+
 | Where | What it defines |
 |---|---|
 | `Dockerfile` | The image CI builds and pushes to ECR (copies `src/`, `data/` and `frontend/`; no `--reload`) |
