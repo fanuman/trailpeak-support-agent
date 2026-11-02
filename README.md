@@ -19,23 +19,20 @@ The FreightLens capstone is a separate repository:
 
 ## What it does
 
-The assistant answers questions for **TrailPeak Outdoors**, a fictional outdoor gear retailer.
-Product details and store policies come from RAG over real documents; current price and stock come
-from live function-calling tools; multi-step requests (checking several products, then totaling
-their cost) are handled by a genuine ReAct agent loop, not a single tool call. Repeated or
-paraphrased questions can be served from a Redis-backed semantic cache instead of re-running the
-full pipeline, and every expensive endpoint is rate-limited. A customer can also attach one photo (their own gear, a damaged item, a packing list):
-it is put into words, searched and answered like any other question (see [Photos](#photos)). Every request through the
-non-streaming `/ask` path is traced in LangSmith — the answer call and retrieval, visible as one
-structured trace rather than raw logs. A golden-set
-evaluation harness scores every response on faithfulness, answer relevancy, context precision, and
-context recall, with automated regression detection against a saved baseline and an A/B test
-runner for comparing prompt variants. A small fine-tuning dataset exists for one behavior gap that
-evaluation surfaced (inconsistent "we don't carry that" responses), uploaded but deliberately not
-yet trained on — see Known gaps. The app is defined as three containers — `app`, `chroma`, `redis`
-— run together via Docker Compose locally and deployed to ECS/Fargate through Terraform, with the
-OpenAI API key supplied entirely by AWS Secrets Manager via an IAM task role — no access key or
-`.env` secret exists on the deployed infrastructure at all.
+The assistant is a support chat for **TrailPeak Outdoors**, a fictional outdoor gear store. A customer can:
+
+- **Ask about products and policies.** Answers come from the store's own documents (product catalogue, returns, warranty, shipping), and the sources used are shown under every answer.
+- **Check price and stock.** The assistant looks these up live, so it never answers from memory.
+- **Ask about several products at once.** It checks each one and adds up the total with code, so the sum is exact.
+- **Ask follow-up questions.** It remembers the last three exchanges, so "and the poles too?" makes sense.
+- **Attach a photo.** It can read a photo of the customer's gear, a damaged item or a packing list, then answer as if they had typed what is in it (see [Photos](#photos)).
+- **See how the answer was made.** The page shows which documents it searched, which live checks it ran, product cards and the answer as it is written.
+- **Get quick repeat answers.** A question that is close to one answered before gets the saved answer at once.
+- **Get a clear reply when it can't help.** A question that has nothing to do with the store gets a fixed reply that lists what the assistant can help with.
+
+To keep it safe and cheap to run, it limits how fast one person can ask (10 questions a minute) and records what every model call costs.
+
+How it is built, tested and deployed is covered further down: [How it works](#how-it-works), [Evaluation](#evaluation), [Cost tracking](#cost-tracking) and [Deploy to AWS](#deploy-to-aws).
 
 ## Demo
 
