@@ -64,11 +64,16 @@ def cost():
     return CostSummary(**summarize())
 
 
+def _history(rag_request):
+    """The earlier messages as plain dicts (oldest first); empty for a first question."""
+    return [m.model_dump() for m in rag_request.history]
+
+
 @app.post("/ask", response_model=RagResponse)
 @limiter.limit("10/minute")
 def ask(request: Request, rag_request: RagRequest):
     try:
-        result = rag_pipeline.answer(rag_request.message)
+        result = rag_pipeline.answer(rag_request.message, history=_history(rag_request))
         return RagResponse(
             reply=result["answer"],
             sources=result["sources"],
@@ -84,7 +89,7 @@ def ask(request: Request, rag_request: RagRequest):
 @limiter.limit("10/minute")
 def ask_stream(request: Request, rag_request: RagRequest):
     return StreamingResponse(
-        sse_stream(rag_pipeline.answer_stream(rag_request.message)),
+        sse_stream(rag_pipeline.answer_stream(rag_request.message, history=_history(rag_request))),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},  # stop proxies from buffering the stream
     )

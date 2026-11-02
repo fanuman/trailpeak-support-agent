@@ -54,16 +54,27 @@ class FakeOpenAI:
     always_tools) and any other call is a text turn that streams `stream_text`.
     `parse` is the structured-output call that answer() makes at the end."""
 
-    def __init__(self, tool_calls=None, always_tools=False, stream_text=("Hello", " world"), tool_turn_text=""):
+    def __init__(self, tool_calls=None, always_tools=False, stream_text=("Hello", " world"), tool_turn_text="",
+                 rewrite_text="Does the SummitCarry backpack come in blue?", rewrite_error=False):
         self.tool_calls = tool_calls
         self.always_tools = always_tools
         self.stream_text = stream_text
         self.tool_turn_text = tool_turn_text   # words the model writes before asking for a tool
         self.calls = []         # streamed calls
         self.parse_calls = []   # structured-output calls
+        self.rewrite_calls = [] # the small non-streamed call that rewrites a follow-up
+        self.rewrite_text = rewrite_text
+        self.rewrite_error = rewrite_error
+        self.embedded = []      # every text that was sent to the embedding model
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create, parse=self._parse))
 
     def _create(self, **kwargs):
+        if not kwargs.get("stream"):   # the rewrite call is the only one that is not streamed
+            self.rewrite_calls.append(kwargs)
+            if self.rewrite_error:
+                raise RuntimeError("the rewrite call failed")
+            return SimpleNamespace(usage=SimpleNamespace(prompt_tokens=4, completion_tokens=2),
+                                   choices=[SimpleNamespace(message=SimpleNamespace(content=self.rewrite_text))])
         self.calls.append(kwargs)
         if self.tool_calls and (self.always_tools or len(self.calls) == 1):
             return iter(self._tool_chunks())
@@ -114,7 +125,7 @@ def make_pipeline(monkeypatch, cache_hit=None, distances=(0.2,), pipeline_kwargs
     monkeypatch.setenv("LANGSMITH_TRACING", "false")
     monkeypatch.setattr(pl, "OpenAI", lambda: client)
     monkeypatch.setattr(pl, "SemanticCache", lambda: cache)
-    monkeypatch.setattr(pl, "get_embedding", lambda text: [0.0])
+    monkeypatch.setattr(pl, "get_embedding", lambda text: client.embedded.append(text) or [0.0])
     monkeypatch.setattr(pl, "get_collection", lambda: collection)
     monkeypatch.setattr(pl, "cost_tracker", costs)
     return RAGPipeline(**(pipeline_kwargs or {})), client, cache, costs
@@ -356,3 +367,125 @@ def test_answer_runaway_loop_reports_incomplete_work(monkeypatch):
     result = p.answer("hi")
     assert result["used_fallback"] is True and "wasn't able to fully work through" in result["answer"]
     assert client.parse_calls == []   # no structured call is made for an incomplete loop
+
+
+# ---------- the cache remembers the sources too ----------------------------------
+
+def test_a_cache_hit_replays_the_saved_sources_in_the_stream(monkeypatch):
+    p, client, cache, costs = make_pipeline(
+        monkeypatch, cache_hit={"response": "saved answer", "full_context": "", "sources": ["returns_policy.txt"]})
+    events = list(p.answer_stream("hi"))
+    assert events[-1] == ("done", {"sources": ["returns_policy.txt"], "cached": True, "fallback": False})
+    assert client.calls == []
+
+
+def test_a_cache_hit_replays_the_saved_sources_in_answer(monkeypatch):
+    p, *_ = make_pipeline(
+        monkeypatch, cache_hit={"response": "saved", "full_context": "ctx", "sources": ["warranty_policy.txt"]})
+    result = p.answer("hi")
+    assert result["from_cache"] is True and result["sources"] == ["warranty_policy.txt"]
+
+
+def test_the_sources_the_user_saw_are_what_gets_saved(monkeypatch):
+    p, client, cache, costs = make_pipeline(
+        monkeypatch, sources=THREE_FILES,
+        stream_text=("Returns take 30 days.", "\n\n", "SOURCES: returns_policy.txt"))
+    list(p.answer_stream("What is your return policy?"))
+    assert cache.stored[0][4] == ["returns_policy.txt"]      # store(query, text, embedding, full_context, sources)
+
+    p, client, cache, costs = make_pipeline(monkeypatch)
+    p.answer("What is your return policy?")
+    assert cache.stored[0][4] == ["returns_policy.txt"]      # answer(): the structured call's sources_used
+
+
+# ---------- follow-up questions: history and the rewrite ---------------------------
+
+HISTORY = [
+    {"role": "user", "content": "Tell me about the SummitCarry backpack"},
+    {"role": "assistant", "content": "It is a 65L multi-day pack."},
+]
+FOLLOW_UP = "what about the blue one?"
+REWRITTEN = "Does the SummitCarry backpack come in blue?"
+
+
+def test_a_follow_up_is_rewritten_and_the_rewrite_is_what_gets_searched(monkeypatch):
+    p, client, cache, costs = make_pipeline(monkeypatch)
+    events = list(p.answer_stream(FOLLOW_UP, history=HISTORY))
+
+    assert events[0] == ("step", {"id": "rewrite", "label": "Reading your follow-up", "detail": "", "status": "running"})
+    assert events[1] == ("step", {"id": "rewrite", "label": "Read your follow-up", "detail": REWRITTEN, "status": "done"})
+    assert events[2][1]["id"] == "search"
+    assert client.embedded == [REWRITTEN]          # not "what about the blue one?"
+    assert len(client.rewrite_calls) == 1 and costs.labels[0] == "rewrite_question"
+
+
+def test_the_model_sees_the_earlier_messages_and_the_real_question(monkeypatch):
+    p, client, *_ = make_pipeline(monkeypatch)
+    list(p.answer_stream(FOLLOW_UP, history=HISTORY))
+
+    sent = client.calls[0]["messages"]
+    assert [m["role"] for m in sent] == ["system", "user", "assistant", "user"]
+    assert sent[1]["content"] == HISTORY[0]["content"] and sent[2]["content"] == HISTORY[1]["content"]
+    assert f"Question: {FOLLOW_UP}" in sent[3]["content"]      # the model gets the words the customer wrote
+
+
+def test_the_rewrite_call_is_small_and_deterministic(monkeypatch):
+    p, client, *_ = make_pipeline(monkeypatch)
+    list(p.answer_stream(FOLLOW_UP, history=HISTORY))
+    call = client.rewrite_calls[0]
+    assert call["temperature"] == 0 and call["max_tokens"] <= 200
+    assert FOLLOW_UP in call["messages"][1]["content"] and HISTORY[0]["content"] in call["messages"][1]["content"]
+
+
+def test_a_first_question_costs_no_extra_call_and_shows_no_rewrite_step(monkeypatch):
+    p, client, cache, costs = make_pipeline(monkeypatch)
+    events = list(p.answer_stream("What is your return policy?"))
+
+    assert client.rewrite_calls == [] and "rewrite_question" not in costs.labels
+    assert all(data.get("id") != "rewrite" for name, data in events if name == "step")
+    assert client.embedded == ["What is your return policy?"]
+    assert [m["role"] for m in client.calls[0]["messages"]] == ["system", "user"]
+
+
+def test_an_answer_written_with_history_is_never_cached(monkeypatch):
+    p, client, cache, costs = make_pipeline(monkeypatch)
+    list(p.answer_stream(FOLLOW_UP, history=HISTORY))
+    assert cache.stored == []
+
+
+def test_a_follow_up_can_still_be_served_from_the_cache(monkeypatch):
+    p, client, cache, costs = make_pipeline(
+        monkeypatch, cache_hit={"response": "Yes, in blue.", "full_context": "", "sources": ["product_catalog.txt"]})
+    events = list(p.answer_stream(FOLLOW_UP, history=HISTORY))
+    assert reply_text(events) == "Yes, in blue."
+    assert events[-1] == ("done", {"sources": ["product_catalog.txt"], "cached": True, "fallback": False})
+    assert client.calls == [] and len(client.rewrite_calls) == 1     # only the small rewrite call was made
+
+
+def test_if_the_rewrite_fails_the_question_is_used_as_written(monkeypatch):
+    p, client, cache, costs = make_pipeline(monkeypatch, rewrite_error=True)
+    events = list(p.answer_stream(FOLLOW_UP, history=HISTORY))
+    assert client.embedded == [FOLLOW_UP]
+    assert reply_text(events) == "Hello world" and events[-1][0] == "done"
+    assert "rewrite_question" not in costs.labels
+
+
+def test_a_question_that_needs_no_rewrite_shows_no_detail(monkeypatch):
+    p, client, *_ = make_pipeline(monkeypatch, rewrite_text="What is your return policy?")
+    events = list(p.answer_stream("What is your return policy?", history=HISTORY))
+    assert events[1][1]["detail"] == ""
+
+
+def test_only_the_first_line_of_the_rewrite_is_used(monkeypatch):
+    p, client, *_ = make_pipeline(monkeypatch, rewrite_text='"Is the pack waterproof?"\nHere is some extra chatter.')
+    assert p._rewrite("is it waterproof?", HISTORY) == "Is the pack waterproof?"
+
+
+def test_answer_also_understands_history(monkeypatch):
+    p, client, cache, costs = make_pipeline(monkeypatch)
+    result = p.answer(FOLLOW_UP, history=HISTORY)
+
+    assert result["answer"] == "Structured answer"
+    assert client.embedded == [REWRITTEN]
+    assert costs.labels == ["rewrite_question", "agent_iteration", "final_answer"]
+    assert cache.stored == []

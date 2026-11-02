@@ -13,6 +13,12 @@ def search_step(label, detail="", status="done"):
     return "step", {"id": "search", "label": label, "detail": detail, "status": status}
 
 
+def rewrite_step(detail="", status="done"):
+    """Shown only for a follow-up: the question is rewritten so it makes sense without the conversation."""
+    label = "Reading your follow-up" if status == "running" else "Read your follow-up"
+    return "step", {"id": "rewrite", "label": label, "detail": detail, "status": status}
+
+
 def tool_step(request, args, status, result=""):
     running, finished = TOOL_LABELS.get(request.name, (request.name, request.name))
     if request.name == "CheckAvailability":

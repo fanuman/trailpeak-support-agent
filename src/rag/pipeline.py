@@ -4,6 +4,7 @@
 #
 #   answer() / answer_stream()   the two public entry points. Each one is short:
 #        |
+#        +-- _rewrite()          (follow-ups only) restate the question so it stands on its own
 #        +-- _prepare()          embed the question, check the cache, retrieve, build the prompt
 #        +-- _agent_loop()       let the model call tools until it writes the answer
 #        |      +-- _model_turn()   one streamed call to the model
@@ -15,6 +16,7 @@
 # answer_stream() yields (event_name, data) pairs. It knows nothing about HTTP or SSE;
 # src/api/streaming.py turns those pairs into the text the browser receives.
 import json
+import logging
 from openai import OpenAI
 
 from src.core.config import DEFAULT_MODEL, RELEVANCE_THRESHOLD, RETRIEVAL_K
@@ -22,14 +24,19 @@ from src.core.embeddings import get_embedding
 from src.core.vectorstore import get_collection
 from src.tools.inventory_tool import TOOL_SCHEMA as AVAILABILITY_SCHEMA, TOOL_FUNCTION as AVAILABILITY_FUNCTION, get_product
 from src.tools.calculator_tool import TOOL_SCHEMA as CALC_SCHEMA, TOOL_FUNCTION as CALC_FUNCTION
-from src.rag.prompts import build_answer_prompt, FINAL_ANSWER_INSTRUCTION, SYSTEM_PROMPT
+from src.rag.prompts import build_answer_prompt, build_rewrite_messages, FINAL_ANSWER_INSTRUCTION, SYSTEM_PROMPT
 from src.core.semantic_cache import SemanticCache
 from src.cost.tracker import cost_tracker
 from src.rag.models import FinalAnswer, ToolRequest, Turn, LoopResult, Prepared
-from src.rag.events import search_step, tool_step
+from src.rag.events import rewrite_step, search_step, tool_step
 from src.rag.sources_footer import SourcesFooter, resolve_sources
 
 from langsmith import traceable
+
+logger = logging.getLogger(__name__)
+
+REWRITE_MAX_TOKENS = 120   # a rewritten question is one short line
+REWRITE_MAX_CHARS = 300
 
 CAP_MESSAGE = "I wasn't able to fully work through this request - it may need to be broken into simpler questions."
 
@@ -76,12 +83,12 @@ class RAGPipeline:
     # ---------- the two public entry points ---------------------------------------
 
     @traceable(name="rag_answer")
-    def answer(self, query, k=None):
+    def answer(self, query, k=None, history=None):
         """One finished answer as a dict (used by /ask and the evaluation scripts)."""
-        prep = self._prepare(query, k)
+        prep = self._prepare(query, k, history=history, search_text=self._rewrite(query, history))
 
         if prep.cached:
-            return {"answer": prep.cached["response"], "sources": [], "used_fallback": False,
+            return {"answer": prep.cached["response"], "sources": prep.cached["sources"], "used_fallback": False,
                     "full_context": prep.cached["full_context"], "from_cache": True}
 
         if prep.out_of_scope:
@@ -108,24 +115,30 @@ class RAGPipeline:
         )
         parsed = final.choices[0].message.parsed
 
-        self._maybe_cache(query, parsed.answer, prep.embedding, result.tool_outputs, full_context)
+        self._maybe_cache(query, parsed.answer, prep.embedding, result.tool_outputs, full_context, parsed.sources_used, follow_up=bool(history))
         return {"answer": parsed.answer, "sources": parsed.sources_used,
                 "used_fallback": False, "full_context": full_context, "from_cache": False}
 
-    def answer_stream(self, query, k=None):
+    def answer_stream(self, query, k=None, history=None):
         """The same question, answered live. Yields (event_name, data) pairs:
           step    - one line of the trail the UI shows: {id, label, detail, status}
           product - a live inventory result, drawn as a card: {sku, name, price, stock, sizes}
           token   - a piece of the answer text: {t}
           done    - the last event: {sources, cached, fallback}
         If something raises, the caller (src/api/streaming.py) turns it into an `error` event."""
+        search_text = query
+        if history:   # a follow-up: say so in the trail, then restate the question so it can be searched
+            yield rewrite_step(status="running")
+            search_text = self._rewrite(query, history)
+            yield rewrite_step(search_text if search_text != query else "")
+
         yield search_step("Searching store documents", status="running")
-        prep = self._prepare(query, k, footer=True)
+        prep = self._prepare(query, k, footer=True, history=history, search_text=search_text)
 
         if prep.cached:
             yield search_step("Found a saved answer")
             yield "token", {"t": prep.cached["response"]}
-            yield "done", {"sources": [], "cached": True, "fallback": False}
+            yield "done", {"sources": prep.cached["sources"], "cached": True, "fallback": False}
             return
 
         if prep.out_of_scope:
@@ -142,35 +155,63 @@ class RAGPipeline:
             yield "done", {"sources": prep.unique_sources, "cached": False, "fallback": True}
             return
 
-        self._maybe_cache(query, result.text, prep.embedding, result.tool_outputs, _full_context(prep.chunks, result.tool_outputs))
-        yield "done", {"sources": resolve_sources(result.footer, prep.unique_sources), "cached": False, "fallback": False}
+        sources = resolve_sources(result.footer, prep.unique_sources)
+        self._maybe_cache(query, result.text, prep.embedding, result.tool_outputs, _full_context(prep.chunks, result.tool_outputs), sources, follow_up=bool(history))
+        yield "done", {"sources": sources, "cached": False, "fallback": False}
 
     # ---------- steps both entry points share -------------------------------------
 
-    def _prepare(self, query, k=None, footer=False):
+    def _rewrite(self, query, history):
+        """For a follow-up ("what about the blue one?"), one small model call restates the question so
+        it makes sense on its own. That text is what gets embedded, cached and searched.
+        No history -> the question unchanged, no call. Any failure -> the question unchanged:
+        a problem here must never stop an answer."""
+        if not history:
+            return query
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model, messages=build_rewrite_messages(query, history),
+                temperature=0, max_tokens=REWRITE_MAX_TOKENS)
+            cost_tracker.record(
+                model=self.model,
+                input_tokens=response.usage.prompt_tokens,
+                output_tokens=response.usage.completion_tokens,
+                label="rewrite_question",
+            )
+            lines = (response.choices[0].message.content or "").strip().splitlines()
+            rewritten = lines[0].strip().strip('"') if lines else ""
+        except Exception:
+            logger.exception("Rewriting the follow-up failed; using the question as it was written")
+            return query
+        return rewritten[:REWRITE_MAX_CHARS] or query
+
+    def _prepare(self, query, k=None, footer=False, history=None, search_text=None):
         """Embed the question, look in the cache, retrieve, and build the prompt.
-        footer=True also asks the model to end with a SOURCES: line (streamed answers only)."""
-        embedding = get_embedding(query)
+        footer=True also asks the model to end with a SOURCES: line (streamed answers only).
+        `search_text` is what gets embedded and searched (a follow-up's rewrite); the model is still
+        shown `query` itself, after the earlier messages in `history`."""
+        embedding = get_embedding(search_text or query)
 
         cached = self.cache.check(query_embedding=embedding) if self.use_cache else None
         if cached:
             return Prepared(embedding=embedding, cached={"response": _text(cached["response"]),
-                                                         "full_context": _text(cached["full_context"])})
+                                                         "full_context": _text(cached["full_context"]),
+                                                         "sources": list(cached.get("sources") or [])})
 
         chunks, sources, distances = self.retrieve(embedding, k=k)
         if self._is_out_of_scope(distances):
             return Prepared(embedding=embedding, out_of_scope=True, chunks=chunks, sources=sources)
 
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": build_answer_prompt(query, chunks, sources, sources_footer=footer)},
-        ]
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages += [{"role": m["role"], "content": m["content"]} for m in history or []]
+        messages.append({"role": "user", "content": build_answer_prompt(query, chunks, sources, sources_footer=footer)})
         return Prepared(embedding=embedding, chunks=chunks, sources=sources, messages=messages)
 
-    def _maybe_cache(self, query, text, embedding, tool_outputs, full_context):
-        """Save the answer for next time - but never if live data (stock, prices) went into it."""
-        if not tool_outputs and self.use_cache and text.strip():
-            self.cache.store(query, text, embedding, full_context)
+    def _maybe_cache(self, query, text, embedding, tool_outputs, full_context, sources, follow_up=False):
+        """Save the answer for next time - but never if live data (stock, prices) went into it, and never
+        for a follow-up: an answer written with the conversation in view may lean on it ("yes, that one too")."""
+        if not tool_outputs and not follow_up and self.use_cache and text.strip():
+            self.cache.store(query, text, embedding, full_context, sources)
 
     @traceable(name="retrieve")
     def retrieve(self, query_embedding, k=None):

@@ -19,8 +19,9 @@ sources it actually used.
 streaming protocol was rebuilt (typed events: `step`, `product`, `token`, `done`, `error`), the agent loop was
 collapsed into one streamed loop, a plain question went from 2 model calls to 1, the source chips under an answer
 now show only the files the model says it used, the pipeline was split into small modules, the suite grew to
-51 tests, API errors became generic (details are logged, never returned), CORS is off unless you ask for it,
-the open `/chat` route was removed and `/cost` now reports what every model call has really cost.
+92 tests, API errors became generic (details are logged, never returned), CORS is off unless you ask for it,
+the open `/chat` route was removed, `/cost` now reports what every model call has really cost,
+the cache replays its sources, and the assistant remembers the last three exchanges so follow-ups work.
 The FreightLens capstone is a separate repository:
 [`freight-doc-intelligence`](https://github.com/fanuman/freight-doc-intelligence).
 
@@ -58,6 +59,8 @@ nothing to configure. Add `?demo` to the address to run the page on canned answe
 - **A trail instead of a spinner.** While the model works you see what it is doing: "Searching store documents",
   "Checking live stock" (with the SKU), "Adding the prices". Each row flips from running to done.
 - **A product card** appears when the assistant checks live stock for a product.
+- **Follow-ups work.** Ask "what about the blue one?" and the trail adds "Read your follow-up" with the rewritten question as its detail.
+  The page remembers the last three exchanges until you press New chat.
 - **The answer streams in word by word**, as markdown.
 - **Source chips** under the answer name the documents the answer was based on (see
   [Where the source chips come from](#where-the-source-chips-come-from)).
@@ -86,6 +89,8 @@ for Minikube.
 
 Every question to `/ask/stream` goes through these steps:
 
+0. **Follow-ups only: rewrite.** If the page sent earlier messages, one small model call restates the question so it can be searched on
+   its own (see [Conversation memory](#conversation-memory)). A first question skips this step entirely.
 1. **Embed** the question and look for a close earlier question in the Redis cache. A hit is served without calling the model.
 2. **Retrieve** the closest chunks from Chroma. If nothing is close enough, the app answers with a fixed
    greeting that lists what it can help with (the out-of-scope path), without calling the model.
@@ -93,7 +98,7 @@ Every question to `/ask/stream` goes through these steps:
    (`CheckAvailability`, `CalculateTotal`) or writes the answer. Tool results go back to the model and the loop repeats,
    at most `max_iterations` times.
 4. **Answer.** The turn with no tool request is the answer, and its text is streamed to the browser as it is produced.
-5. **Cache** the answer, but only if no tool was used (live price and stock would go stale).
+5. **Cache** the answer, but only if no tool was used (live price and stock would go stale) and it was not a follow-up.
 
 ### What the browser receives
 
@@ -109,6 +114,26 @@ inside a streamed token can never break the framing.
 | `done` | `{sources, cached, fallback}` | The answer is complete; `sources` are the chips to show, `fallback` is true for the out-of-scope greeting or a loop that hit its cap |
 | `error` | `{message}` | Something failed; the message is generic and the details are only logged |
 
+### Conversation memory
+
+A model remembers nothing between requests, so memory means sending the earlier messages again. Here the **browser keeps the history**
+and sends the last 6 messages (3 exchanges) with each question; the server stays stateless, so it works the same on several ECS tasks or Lambda,
+with no session ids and no stored chats. "New chat" reloads the page and starts empty. Failed or stopped answers are not remembered.
+
+Search has a second problem: "what about the blue one?" embeds to nothing useful. So for a follow-up only, `RAGPipeline._rewrite()` makes one
+small model call (temperature 0, one short line, logged as `rewrite_question`) that turns it into a standalone question such as
+"Does the SummitCarry backpack come in blue?". That rewrite is what gets embedded, looked up in the cache and searched. The answering model
+still sees the real conversation: the system prompt, the earlier messages, and then the question exactly as the customer wrote it.
+
+- **No history, no change.** A first question makes no extra call and shows no extra step.
+- **The rewrite prompt carries two worked examples** and tells the model to restate the *whole* request when a customer adds to an earlier one
+  ("and a headlamp too?" must keep the items from before), because a lazy rewrite means the search misses the earlier products.
+- **A failed rewrite never breaks an answer.** The error is logged and the question is used as written.
+- **Cache rule.** A follow-up may be served from the cache (that answer was written for a standalone question), but it never writes to it,
+  because an answer written with the conversation in view may lean on it ("yes, that one too").
+- **Untrusted input.** The history comes from the browser, so the API accepts only `user` and `assistant` roles, 1 to 2000 characters per message and
+  at most 6 messages (anything else is a `422`). The rewrite is used only as a search string and a cache key, never as an instruction.
+
 ### Where the source chips come from
 
 For the **streamed** answer, the prompt asks the model to end with one extra line, `SOURCES: file1.txt, file2.txt`
@@ -123,7 +148,8 @@ then `resolve_sources()` turns it into the chips:
 The footer is the model's own report, so it can differ a little from run to run. The instruction only works when it
 sits directly after the question in the user message, not in the system message.
 The non-streaming `/ask` still gets its `sources` from the structured final call (`sources_used`).
-Cached answers return no sources, because the cache never stored them.
+A cached answer replays the sources it was saved with (the ones shown the first time). Entries saved before this change
+have none and replay an empty list until they expire (the cache's TTL is one hour).
 
 **`rag/pipeline.py`** — `RAGPipeline` runs a genuine ReAct loop (Day 16's pattern): the model can
 call `CheckAvailability` and `CalculateTotal` in sequence, with each step's input depending on the
@@ -152,7 +178,8 @@ of re-running retrieval and generation. Deliberately never caches an answer that
 become a *recurring* failure for the cache's TTL). `REDIS_HOST` is read from the environment,
 defaulting to Compose's `"redis"` DNS name locally; ECS's task definition overrides it to
 `"localhost"`, since containers within one Fargate task share a network interface rather than
-getting individual service DNS names the way Compose provides.
+getting individual service DNS names the way Compose provides. Each entry also saves the source files the answer
+was shown with (as JSON text), so a cache hit can show the same chips.
 
 **`retrieve()` fetches its Chroma collection fresh on every call**, not once at pipeline
 construction — a deliberate fix, not an oversight. Caching the collection reference at startup
@@ -177,8 +204,8 @@ local development without AWS credentials configured still works.
 | Method and path | What it does |
 |---|---|
 | `GET /health` | Liveness check: `{"status": "ok"}` |
-| `POST /ask/stream` | The main endpoint: the question's answer as Server-Sent Events (table above). Rate limited to 10/minute |
-| `POST /ask` | The same question answered in one JSON response (`reply`, `sources`, `used_fallback`, `from_cache`). Rate limited to 10/minute. Used by the evaluation harness |
+| `POST /ask/stream` | The main endpoint: the question's answer as Server-Sent Events (table above). Body: `message` and an optional `history` (up to 6 `{role, content}` messages, oldest first). Rate limited to 10/minute |
+| `POST /ask` | The same question (and optional `history`) answered in one JSON response (`reply`, `sources`, `used_fallback`, `from_cache`). Rate limited to 10/minute. Used by the evaluation harness |
 | `GET /cost` | Totals for every model call the app has made, read from `logs/cost_log.jsonl`: `total_calls`, `total_cost_usd`, `cost_if_gpt4o_usd` and `by_stage` (same numbers as `python -m src.cost.report`). Public like `/health`, and totals only. On ECS the log lives in the container, so it covers spend since the task last started |
 | `GET /` | The web UI (static files, mounted last so it cannot shadow an API route) |
 
@@ -220,7 +247,7 @@ of 0.80 is a known catalog gap (no winter-rated tent), not a retrieval bug.
 **`cost/`** — `tracker.py`'s `cost_tracker.record(model, input_tokens, output_tokens, label)` is
 called after every `chat.completions` call in `rag/pipeline.py`: each agent-loop turn that asks for a tool
 (`agent_iteration`), the streamed answer turn (`stream_answer`), and the structured final call that only
-`/ask` still makes (`final_answer`). Streamed calls use `stream_options={"include_usage": True}`,
+`/ask` still makes (`final_answer`), plus the small call that rewrites a follow-up (`rewrite_question`). Streamed calls use `stream_options={"include_usage": True}`,
 since token usage isn't included in a streamed response by default (without it, no cost is logged at all).
 `pricing.py` holds a small
 per-model USD-per-million-token table and is the only place that computes a dollar amount.
@@ -270,6 +297,7 @@ and `locustfile.py` (load testing used to verify rate limiting and caching under
 - **No secret on the server.** `core/secrets.py` reads the OpenAI key from AWS Secrets Manager through an IAM role. No access key or `.env` secret exists on the deployed infrastructure.
 - **Generic errors.** Clients get "Upstream error. Please try again."; the details stay in the server log.
 - **No open model endpoint.** The general-purpose `/chat` route was removed; every model call the API makes goes through the RAG pipeline.
+- **Bounded, validated history.** Only `user` and `assistant` messages, 6 at most, 2000 characters each; a client can never inject a `system` or `tool` message.
 - **CORS off by default**, and rate limiting (`slowapi`, Redis-backed) on every expensive endpoint.
 - **Key rotation** needs no code change; the runbook is in [`infra/README.md`](infra/README.md#rotate-the-openai-api-key).
 - **CloudWatch monitoring** (`infra/terraform/monitoring.tf`): a log metric filter turns the Secrets Manager fallback warning into an alertable metric, CPU and memory alarms watch the ECS service, an SNS email channel notifies, and a dashboard combines them. It was validated with a real fire drill (a deliberately corrupted secret), not only a `terraform apply`.
@@ -280,10 +308,10 @@ and `locustfile.py` (load testing used to verify rate limiting and caching under
 python -m pytest tests/
 ```
 
-51 tests, none of which call OpenAI, Chroma or Redis (they use fakes), so they run in about 3 seconds:
+92 tests, none of which call OpenAI, Chroma or Redis (they use fakes), so they run in about 3 seconds:
 `test_stream_events.py` (the pipeline's events, tools, cache, loop cap and sources), `test_sources_footer.py`
 (the footer, including text cut into pieces at every possible position), `test_sse.py` (the wire format and the generic error),
-`test_cost_summary.py` (the `/cost` totals, and that `/chat` is gone), `test_prompts.py` and `test_imports.py`.
+`test_cost_summary.py` (the `/cost` totals, and that `/chat` is gone), `test_semantic_cache.py` (how the sources are saved and read back), `test_api_models.py` (what a request may contain, including the history limits), `test_inventory_tool.py` (finding a product by SKU or by name), `test_prompts.py` and `test_imports.py`.
 
 **`.github/workflows/`** — a two-job pipeline: `test` (fast import-checks) gates `build-and-push`
 (builds the Docker image, pushes to ECR tagged by both commit SHA and `latest`).
@@ -362,8 +390,8 @@ Opens a web UI at `localhost:8089`.
 **7. Run the evaluation harness** (offline, deliberately not on the live request path). Both
 commands below need Chroma/Redis reachable — via Compose (`CHROMA_HOST=localhost
 CHROMA_PORT=8001 REDIS_HOST=localhost`) or another live instance. `run_eval.py` runs
-with the semantic cache bypassed (`use_cache=False`), so no Redis flush is needed: a cached answer carries no sources and
-would score `context_precision` 0 for reasons unrelated to retrieval (see Known gaps).
+with the semantic cache bypassed (`use_cache=False`), so no Redis flush is needed: a cache hit replays an earlier answer, so a run would
+score the cache (and whatever configuration filled it) instead of the pipeline (see Known gaps).
 
 ```bash
 python -m src.evaluation.run_eval
@@ -402,7 +430,7 @@ to report on)
 python -m src.cost.report
 ```
 Prints total calls, actual cost, what the same calls would have cost on `gpt-4o` instead, and a
-breakdown by pipeline stage (`agent_iteration`, `stream_answer`, `final_answer`). Reads `logs/cost_log.jsonl`
+breakdown by pipeline stage (`agent_iteration`, `stream_answer`, `final_answer`, `rewrite_question`). Reads `logs/cost_log.jsonl`
 directly, so it works the same whether requests came from `cli.py` or the API.
 
 **11. Run the Researcher + Writer content pipeline** (needs `langgraph`; `pip install langgraph`
@@ -452,10 +480,10 @@ production-rag-agent/
 │   │   ├── calculator_tool.py
 │   │   └── inventory.json
 │   ├── rag/
-│   │   ├── prompts.py         # system prompt, answer prompt, the SOURCES: footer instruction
+│   │   ├── prompts.py         # system prompt, answer prompt, the SOURCES: footer, the follow-up rewrite prompt
 │   │   ├── pipeline.py        # RAGPipeline: _agent_loop, _model_turn, answer, answer_stream
 │   │   ├── models.py          # data classes: FinalAnswer, ToolRequest, Turn, LoopResult, Prepared
-│   │   ├── events.py          # wording of the trail ("Checking live stock", ...)
+│   │   ├── events.py          # wording of the trail ("Checking live stock", "Read your follow-up", ...)
 │   │   └── sources_footer.py  # hides the SOURCES: line from the stream; resolve_sources()
 │   ├── evaluation/
 │   │   ├── prompts.py
@@ -489,7 +517,10 @@ production-rag-agent/
 │   ├── test_sources_footer.py
 │   ├── test_sse.py
 │   ├── test_prompts.py
+│   ├── test_api_models.py
+│   ├── test_inventory_tool.py
 │   ├── test_cost_summary.py
+│   ├── test_semantic_cache.py
 │   └── test_imports.py
 ├── frontend/
 │   └── index.html             # the web UI, served by the API at /
@@ -541,12 +572,25 @@ Everything below is deliberate and written down. Items marked **Fixed** were gap
 - **New: `/ask` still makes a separate structured final call**, which streamed questions no longer need. It stays because
   `ab_test.py` varies that call's instruction and `baseline_scores.json` was measured that way. Removing it is a later, deliberate
   change that needs one re-baseline.
-- **New: there is no conversation memory.** Every question is answered on its own.
+- **There was no conversation memory**: every question was answered on its own. **Fixed**: the browser sends the last 3 exchanges and follow-ups are rewritten before searching (see [Conversation memory](#conversation-memory)).
+- **New: memory is deliberately small.** The history lives in the browser tab (a reload forgets it), is capped at 3 exchanges with no summary of older turns,
+  and does not include earlier tool results (only the answer text the customer saw).
+- **New: a follow-up costs one extra small model call and a little latency before the first token**, and its answer is never cached.
+- **A multi-product question can miss a product in the search.** One embedding of "jacket + poles + headlamp + total price" ranks the jacket, poles and policy
+  chunks first, so the headlamp's chunk (and its SKU) was not retrieved, and the model invented SKUs. Raising `RETRIEVAL_K` from 5 to 8 did not help, and was reverted.
+  **Fixed** for stock and price by making the tool do the lookup: `CheckAvailability` accepts a SKU **or a product name** and `find_product()` resolves it against
+  `inventory.json` (an exact SKU, or a name where all the words of one side appear in the other, and it must match exactly one product; several or none is reported, never guessed).
+  The prompt tells the model to pass the name when the SKU is not in the context. **Not fixed**: other facts about a product (not price or stock) still depend on search finding its chunk;
+  the sturdier fix is one search per product, which is not built.
+- **New: the rewrite is not evaluated.** The golden set holds single questions only, so a bad rewrite would not show up in the four metrics.
 - **`SemanticCache` never captures `sources`** — every cached response permanently returns
   `sources: []`, even though the original (non-cached) answer had real sources. This also means
   any cached answer scores `context_precision: 0.0` by construction (empty source list), unrelated
   to real retrieval quality — evaluation code must run with `use_cache=False` to get meaningful
   precision scores. A known, minor gap in `SemanticCache.store()`'s signature, not fixed yet.
+  **Fixed**: `SemanticCache.store()` now saves the sources (as JSON text) next to the answer and `check()` returns them, so a cache hit
+  shows the same chips and a cached answer no longer scores `context_precision` 0. `run_eval.py` still bypasses the cache, because a
+  cache hit would replay an old configuration's answer.
 - **Only the non-streaming path is traced.** `answer_stream()` uses `yield`; tracing a generator
   correctly needs more care than the current `@traceable` setup provides, so `/ask/stream`
   requests currently produce no LangSmith trace at all.
@@ -709,7 +753,7 @@ The git tags below trace that progression; check tag history, not just the lates
 | `v1.1-week5-infra` | 5 | Docker Compose, ECS/Fargate via Terraform, semantic caching (Redis), rate limiting, load testing | ✅ |
 | `v1.2-week6-observability` | 6 | LangSmith tracing, context precision/recall, regression + A/B testing harness, fine-tuning dataset (prepared, untrained), Bedrock comparison, cost tracking | ✅ |
 | `v1.3-week7-hardening` | 7 | LangGraph Researcher + Writer pipeline; Kubernetes fundamentals + local Minikube deployment (self-healing demonstrated live); EKS fundamentals (conceptual, deliberately deferred twice); input validation + prompt-injection hardening + key rotation runbook; CloudWatch monitoring + alerting (SNS, metric filters, alarms, dashboard - validated with a real fire drill). Saturday project: orchestrator/specialist router pattern documented (not built, deferred to Week 8) | ✅ |
-| *(untagged)* | after 7 | Web UI redesign served by the API; typed SSE events; one streamed agent loop (a plain question costs 1 model call, not 2); sources footer; pipeline split into modules; generic errors and CORS off by default; open `/chat` route removed, `/cost` reads the real cost log, `run_eval` bypasses the cache; 51 tests; README and `infra/README.md` restructure | ✅ |
+| *(untagged)* | after 7 | Web UI redesign served by the API; typed SSE events; one streamed agent loop (a plain question costs 1 model call, not 2); sources footer; pipeline split into modules; generic errors and CORS off by default; conversation memory (history kept by the browser, follow-ups rewritten before searching); open `/chat` route removed, `/cost` reads the real cost log, `run_eval` bypasses the cache; the cache replays its sources; 92 tests; README and `infra/README.md` restructure | ✅ |
 
 <details>
 <summary><strong>Tech stack</strong></summary>

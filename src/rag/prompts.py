@@ -24,7 +24,8 @@ def build_answer_prompt(query, chunks, sources, sources_footer=False):
 
 You may reason across multiple pieces of context to reach a conclusion — for example, if the context lists which countries are supported, you can correctly conclude "no" for a country not on that list, without the specific country needing to be named directly.
 
-If the user asks about current price, stock, or availability, use the CheckAvailability tool with the product's SKU (found in the context) rather than guessing — the context does not contain live pricing or stock data.
+If the user asks about current price, stock, or availability, use the CheckAvailability tool — the context does not contain live pricing or stock data.
+Use the product's SKU if it appears in the context above; otherwise pass the product's name exactly as the customer or the conversation gives it, and the tool will look it up. Never invent a SKU and never use another product's SKU. If the customer asks about several products, check every one of them; if the tool says it cannot find one, tell the customer which one instead of leaving it out.
 If the user asks for a combined total across multiple products, first check each product's price with CheckAvailability, then use CalculateTotal with those exact prices - never add prices manually yourself.
 
 Only say "I don't have information about that" if the context genuinely doesn't contain enough information to answer, even after reasoning through it — not simply because the exact words of the question don't appear verbatim in the context.
@@ -56,3 +57,46 @@ SOURCES_FOOTER_INSTRUCTION = (
     "using the file names from the [Source: ...] labels in the context above. "
     "If you used none of them, write: SOURCES: none"
 )
+
+
+# ---------- follow-up questions ---------------------------------------------------
+# "What about the blue one?" can't be searched on its own. Before searching, a small model call
+# rewrites it as a question that makes sense by itself. The rewrite is only used as a search
+# string and a cache key; the answering model still sees the real conversation.
+
+REWRITE_INSTRUCTION = (
+    "You rewrite a customer's last message into ONE complete question that can be understood with no "
+    "conversation at all.\n"
+    "Rules:\n"
+    "- Replace every reference (\"it\", \"that one\", \"the blue one\", \"too\", \"also\", \"and for ...\") "
+    "with the full product names or topics it refers to, taken from the conversation.\n"
+    "- If the customer is adding to or changing an earlier request (for example adding another item to a "
+    "total), restate the WHOLE request, including every earlier item that still applies.\n"
+    "- If the last message already makes sense on its own, return it unchanged.\n"
+    "- Do not answer the question. Do not add facts that are not in the conversation.\n"
+    "Reply with the rewritten question only, on one line.\n\n"
+    "Example 1\n"
+    "Customer: How much are the AlpinePeak tent and the CloudNine sleeping bag together?\n"
+    "Assistant: Here is the price of each one and the total.\n"
+    "Customer's last message: and a stove too?\n"
+    "Rewritten question: What is the total price of the AlpinePeak tent, the CloudNine sleeping bag and a stove together?\n\n"
+    "Example 2\n"
+    "Customer: Tell me about the SummitCarry backpack\n"
+    "Assistant: It is a 65L multi-day pack.\n"
+    "Customer's last message: what about the blue one?\n"
+    "Rewritten question: Does the SummitCarry backpack come in blue?"
+)
+
+REWRITE_CLIP = 600   # characters kept of each earlier message, to keep this call small
+
+
+def build_rewrite_messages(query, history):
+    """The messages for the rewrite call. `history` is a list of {"role", "content"} dicts, oldest first."""
+    transcript = "\n".join(
+        f"{'Customer' if m['role'] == 'user' else 'Assistant'}: {m['content'][:REWRITE_CLIP]}"
+        for m in history
+    )
+    return [
+        {"role": "system", "content": REWRITE_INSTRUCTION},
+        {"role": "user", "content": f"Conversation so far:\n{transcript}\n\nCustomer's last message: {query}\n\nRewritten question:"},
+    ]

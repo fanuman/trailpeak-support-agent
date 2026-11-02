@@ -1,4 +1,5 @@
 # src/core/semantic_cache.py
+import json
 import redis
 import numpy as np
 import time
@@ -9,6 +10,20 @@ from redis.commands.search.indexDefinition import IndexDefinition, IndexType
 from redis.commands.search.query import Query
 
 EMBEDDING_DIM = 1536  # text-embedding-3-small
+
+
+def _to_text(value):
+    """Redis (decode_responses=False) hands back bytes; make it a normal string."""
+    return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
+
+
+def _decode_sources(raw):
+    """The sources are saved as JSON text. Missing (an entry saved before sources were kept) or damaged -> []."""
+    try:
+        sources = json.loads(_to_text(raw))
+    except (TypeError, ValueError):
+        return []
+    return [s for s in sources if isinstance(s, str)] if isinstance(sources, list) else []
 
 
 class SemanticCache:
@@ -40,20 +55,23 @@ class SemanticCache:
     def check(self, query_embedding):
         vector_bytes = np.array(query_embedding, dtype=np.float32).tobytes()
         q = (Query("*=>[KNN 1 @embedding $vec AS distance]")
-            .sort_by("distance").return_fields("response", "full_context", "distance")
+            .sort_by("distance").return_fields("response", "full_context", "sources", "distance")
             .dialect(2))
         results = self.client.ft("cache_idx").search(q, query_params={"vec": vector_bytes})
         
         if results.docs and float(results.docs[0].distance) <= self.threshold:
-            return {"response": results.docs[0].response, "full_context": results.docs[0].full_context}
+            doc = results.docs[0]
+            return {"response": doc.response, "full_context": doc.full_context,
+                    "sources": _decode_sources(getattr(doc, "sources", None))}
         return None
 
-    def store(self, prompt, response, query_embedding, full_context=""):
+    def store(self, prompt, response, query_embedding, full_context="", sources=None):
         key = f"cache:{uuid.uuid4().hex}"
         self.client.hset(key, mapping={
             "prompt": prompt,
             "response": response,
             "full_context": full_context,
+            "sources": json.dumps(list(sources or [])),
             "embedding": np.array(query_embedding, dtype=np.float32).tobytes(),
             "created_ts": int(time.time()),
         })

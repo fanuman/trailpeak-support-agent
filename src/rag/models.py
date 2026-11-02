@@ -39,7 +39,7 @@ class LoopResult:
 @dataclass
 class Prepared:
     """Everything decided before the model is called."""
-    cached: dict = None           # {"response", "full_context"} if the cache already has this question
+    cached: dict = None           # {"response", "full_context", "sources"} if the cache already has this question
     out_of_scope: bool = False    # True if nothing retrieved is close enough to the question
     chunks: list = field(default_factory=list)
     sources: list = field(default_factory=list)    # one per chunk, so it can repeat

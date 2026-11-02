@@ -252,6 +252,17 @@
 
   let busy = false, controller = null;
 
+  // ---- memory ----------------------------------------------------------------
+  // The server remembers nothing between questions. This page keeps the finished exchanges and
+  // sends the last few with each new question, so "what about the blue one?" can be understood.
+  // "New chat" reloads the page, which empties it. Keep MAX_HISTORY equal to the API's limit.
+  const MAX_HISTORY = 6, history = [];
+  function remember(question, answer, info) {
+    if (!answer || info?.fallback) return;     // nothing worth remembering
+    history.push({ role: 'user', content: question.slice(0, 2000) }, { role: 'assistant', content: answer.slice(0, 2000) });
+    history.splice(0, Math.max(0, history.length - MAX_HISTORY));
+  }
+
   // ---- tiny, safe markdown: paragraphs, bullets, numbers, bold, code -------
   const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>');
@@ -315,7 +326,6 @@
     t.trail.querySelectorAll('li[data-state="running"]').forEach((li) => (li.dataset.state = 'done'));
     t.meta.hidden = false; t.meta.innerHTML = '';
     if (info.sources?.length) { t.meta.append(document.createTextNode('Sources')); info.sources.forEach((s) => t.meta.append(el('span', 'src', esc(s)))); }
-    if (info.cached) t.meta.append(el('span', null, 'Saved answer'));
     const copy = el('button', 'mini', 'Copy'); copy.type = 'button';
     copy.onclick = async () => { try { await navigator.clipboard.writeText(t.text); copy.textContent = 'Copied'; setTimeout(() => (copy.textContent = 'Copy'), 1500); } catch {} };
     t.meta.append(copy);
@@ -343,7 +353,7 @@
         else if (event === 'product') product(t, data);
         else if (event === 'token') { t.text += data.t; t.answer.innerHTML = withCaret(markdown(t.text)); }
         else if (event === 'error') throw Object.assign(new Error(data.message), { friendly: true });
-        else if (event === 'done') finish(t, data);
+        else if (event === 'done') { finish(t, data); remember(question, t.text, data); }
         scroll();
       }
       if (t.answer.classList.contains('live')) finish(t, {});
@@ -361,7 +371,7 @@
   // ---- real backend: Server-Sent Events, parsed properly -----------------------
   async function* liveStream(question, signal) {
     const res = await fetch(`${API}/ask/stream`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: question }), signal,
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: question, history }), signal,
     });
     if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
     const reader = res.body.getReader(), decoder = new TextDecoder();
