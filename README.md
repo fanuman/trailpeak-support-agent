@@ -868,7 +868,7 @@ The git tags below trace that progression; check tag history, not just the lates
    against whichever Chroma           fetched on every call - not
    is currently live)                 cached at startup)
 
-  golden_set.py --> run_eval.py --> RAGPipeline.answer() (use_cache=True)
+  golden_set.py --> run_eval.py --> RAGPipeline.answer() (use_cache=False)
                                   --> metrics.py (faithfulness, relevancy,
                                                    context precision/recall)
                                   --> regression.py (vs. saved baseline)

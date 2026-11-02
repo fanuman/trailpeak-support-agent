@@ -151,12 +151,12 @@ def containers():
 # ---------------------------------------------------------------- 2. one question
 def question_path():
     s = Svg(1280, 690, "The path of one question",
-            "The question is embedded and looked up in the semantic cache. On a miss, the top five chunks are retrieved "
+            "A follow-up (one sent with earlier messages) is first rewritten into a standalone question. The question is embedded and looked up in the semantic cache. On a miss, the top five chunks are retrieved "
             "from Chroma and checked for relevance. In scope, the agent loop lets the model call tools until it writes the "
             "answer, streaming tokens to the browser. The SOURCES line is hidden and turned into source chips, the answer "
             "is cached if no tool was used, and a done event ends the stream.")
     header(s, "What happens to one question in /ask/stream",
-           "Row 1 decides whether to answer at all. Row 2 writes the answer and streams it.")
+           "Row 1 decides whether to answer at all. Row 2 writes the answer and streams it. A follow-up takes the detour on the left.")
 
     y1 = 225
     s.node(95, y1, 140, 84, "end", [("Question", "t"), ("from the UI", "d")])
@@ -165,9 +165,13 @@ def question_path():
     s.node(675, y1, 160, 84, "store", [("retrieve", "t"), ("top 5 chunks", "d"), ("Chroma", "m")])
     s.node(880, y1, 170, 84, "decide", [("in scope?", "t"), ("closest chunk < 0.68", "d"), ("distance", "m")])
     s.node(1115, y1, 210, 84, "end", [("fallback message", "t"), ("no model call", "d"), ("done: fallback", "m")])
-    s.node(470, 118, 270, 54, "end", [("saved answer, sent at once", "t"), ("done: cached", "m")])
+    s.node(470, 118, 270, 54, "end", [("saved answer + its sources", "t"), ("sent at once; done: cached", "d")])
+    s.node(150, 118, 220, 54, "llm", [("rewrite the follow-up", "t"), ("only if history was sent", "d")])
 
     s.arrow([(165, y1), (200, y1)])
+    s.arrow([(95, y1 - 42), (95, 145)], color="ink")
+    s.label(86, 168, "has history", anchor="end")
+    s.arrow([(230, 145), (230, y1 - 42)], color="ink")
     s.arrow([(350, y1), (385, y1)])
     s.arrow([(555, y1), (595, y1)], color="ink")
     s.label(575, y1 - 12, "miss")
@@ -190,7 +194,7 @@ def question_path():
     s.text(580, 534, "A turn with no tool request is the answer. Maximum 6 turns, then a safe message.", 12, "normal", SOFT)
 
     s.node(445, 455, 200, 84, "code", [("sources", "t"), ("SOURCES: line hidden", "d"), ("names checked", "d")])
-    s.node(235, 455, 170, 84, "store", [("cache it", "t"), ("only if no tool", "d"), ("was used", "d")])
+    s.node(235, 455, 170, 84, "store", [("cache it", "t"), ("only if no tool and", "d"), ("not a follow-up", "d")])
     s.node(75, 455, 120, 84, "end", [("done", "t"), ("sources", "d"), ("chips", "d")])
     s.arrow([(635, 455), (545, 455)])
     s.label(590, 445, "answer")
@@ -225,12 +229,12 @@ def evaluation():
         s.arrow([(920, y), (995, y)])
 
     lane(190, "Regression check", "python -m src.evaluation.run_eval",
-         [("RAGPipeline.answer()", "t"), ("one pipeline", "d"), ("use_cache=True", "m")], "code",
+         [("RAGPipeline.answer()", "t"), ("one pipeline", "d"), ("use_cache=False", "m")], "code",
          [("regression.py", "t"), ("average vs saved baseline", "d"), ("drop over 0.1 = flagged", "m")], "decide")
     lane(410, "A/B test of two prompts", "python -m src.evaluation.ab_test",
          [("two pipelines, A and B", "t"), ("final instruction differs", "d"), ("use_cache=False", "m")], "code",
          [("side-by-side scores", "t"), ("A against B", "d"), ("printed, nothing saved", "m")], "end")
-    s.text(30, 520, "The cache must be off for scoring: a cached answer returns no sources, so its context precision would be 0.", 13, "normal", SOFT)
+    s.text(30, 520, "The cache is off for scoring: a cache hit replays an earlier answer, so a run would score the cache, not the pipeline.", 13, "normal", SOFT)
     legend(s, 560, [("code", "plain code"), ("decide", "scores or decides"), ("end", "input or output")])
     s.save("evaluation-flow.svg")
 
