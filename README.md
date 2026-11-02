@@ -60,6 +60,8 @@ nothing to configure. Add `?demo` to the address to run the page on canned answe
 - **A trail instead of a spinner.** While the model works you see what it is doing: "Searching store documents",
   "Checking live stock" (with the SKU), "Adding the prices". Each row flips from running to done.
 - **A product card** appears when the assistant checks live stock for a product.
+- **Attach a photo.** The picture button next to the box (or pasting an image) adds one photo to your question. The trail adds "Read your photo" with what it showed.
+  Sample photos and prompts are in [`docs/demo-photos/`](docs/demo-photos/README.md).
 - **Follow-ups work.** Ask "what about the blue one?" and the trail adds "Read your follow-up" with the rewritten question as its detail.
   The page remembers the last three exchanges until you press New chat.
 - **The answer streams in word by word**, as markdown.
@@ -69,11 +71,26 @@ nothing to configure. Add `?demo` to the address to run the page on canned answe
 - **Plain error messages**: past the rate limit (10 requests a minute) the page says
   "You are asking faster than the desk can answer. Wait a moment and try again." instead of failing silently.
 
-<!-- Screenshots to add (save in docs/images/ and un-comment):
-![An answer with the trail and a product card](docs/images/ui-answer.png)
+**An answer with its trail and live product cards:**
+
+![An answer with the trail and product cards](docs/images/ui-answer.png)
+
+**A follow-up.** The second question ("and the TrekLight poles too?") is rewritten into a full question first, shown in the trail:
+
+![A follow-up question, with the rewrite in the trail](docs/images/ui-followup.png)
+
+**A photo of a packing list.** The photo is read, each item is checked against live stock, and the out-of-stock gloves are shown in red:
+
+![A question with a photo of a packing list](docs/images/ui-photo.png)
+
+**A photo of a tent, then a follow-up.** The answer finds the matching product; "yes what's the price" is understood from the conversation and triggers a live stock check:
+
+![A question with a photo of a tent](docs/images/ui-tent.png)
+
+**An out-of-stock product** (the red pill), and **the rate-limit notice** that replaces a silent failure. The screenshots are in dark mode; the page follows the system setting and has a matching light palette:
+
 ![Dark mode](docs/images/ui-dark.png)
 ![The rate-limit notice](docs/images/ui-rate-limit.png)
--->
 
 ## How it works
 
@@ -160,6 +177,7 @@ The search side of the app only understands text (`text-embedding-3-small` canno
   match the type it claims (`src/core/images.py`). Anything else is a `422` that never echoes the photo back.
 - **Shrunk in the browser first.** The page resizes the photo to `IMAGE_MAX_SIDE` pixels and saves it as a JPEG, so uploads are small (about 100 to 300 KB) and hidden data such as GPS location is dropped.
 - **Privacy.** The photo goes to OpenAI to be read and is not stored by the app: it is not written to disk or to the cost log, and LangSmith traces keep only its size.
+- **Sample photos.** Two ready-made test photos, and the prompt and expected answer for each use case, are in [`docs/demo-photos/`](docs/demo-photos/README.md).
 - **A failed description never breaks an answer.** The error is logged and the question is searched as written; the answering model still gets the photo.
 
 ### Where the source chips come from

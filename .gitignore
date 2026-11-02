@@ -18,3 +18,6 @@ infra/terraform/terraform.tfstate*
 infra/terraform/terraform.tfvars
 src/evaluation/baseline_scores.json
 logs/
+
+# Full-size originals of the demo photos (the shrunk copies in docs/demo-photos/ are the ones committed)
+docs/demo-photos/local/
