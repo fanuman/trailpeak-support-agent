@@ -14,14 +14,6 @@ sources it actually used.
 > written only from those. The model is told to treat retrieved text as untrusted data, and the app shows
 > the user which sources an answer was based on.
 
-**Status: v1.3 (Week 7) plus a UI and pipeline pass since.** The tagged work is complete (see
-[Milestones](#milestones)). After `v1.3` the web UI was redesigned and is now served by the API itself, the
-streaming protocol was rebuilt (typed events: `step`, `product`, `token`, `done`, `error`), the agent loop was
-collapsed into one streamed loop, a plain question went from 2 model calls to 1, the source chips under an answer
-now show only the files the model says it used, the pipeline was split into small modules, the suite grew to
-142 tests, API errors became generic (details are logged, never returned), CORS is off unless you ask for it,
-the open `/chat` route was removed, `/cost` now reports what every model call has really cost,
-the cache replays its sources, the assistant remembers the last three exchanges so follow-ups work, and a customer can attach one photo to a question.
 The FreightLens capstone is a separate repository:
 [`freight-doc-intelligence`](https://github.com/fanuman/freight-doc-intelligence).
 
