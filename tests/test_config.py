@@ -47,6 +47,13 @@ def test_every_setting_is_usable():
     assert config.REWRITE_MAX_TOKENS >= 1 and config.REWRITE_MAX_CHARS >= 1 and config.REWRITE_CLIP_CHARS >= 1
     assert config.CACHE_DISTANCE_THRESHOLD >= 0 and config.CACHE_TTL_SECONDS >= 1
     assert "/" in config.RATE_LIMIT                                  # e.g. "10/minute"
+    assert config.MAX_IMAGE_BYTES >= 1 and config.IMAGE_MAX_SIDE >= 64
+    assert config.IMAGE_DESCRIBE_MAX_TOKENS >= 1 and config.IMAGE_NOTE_MAX_CHARS >= 1
+
+
+def test_the_image_types_and_detail_are_fixed_choices():
+    assert config.ALLOWED_IMAGE_TYPES == ("image/jpeg", "image/png", "image/webp")
+    assert config.IMAGE_DETAIL in ("low", "high")
 
 
 def test_the_models_are_not_overridable(monkeypatch):
@@ -75,3 +82,20 @@ def test_config_endpoint_reports_the_same_limits_the_api_enforces():
     reply = client_config()
     assert reply.max_history_messages == config.MAX_HISTORY_MESSAGES
     assert reply.max_message_chars == config.MAX_MESSAGE_CHARS
+    assert reply.max_image_bytes == config.MAX_IMAGE_BYTES and reply.image_max_side == config.IMAGE_MAX_SIDE
+    assert reply.image_types == list(config.ALLOWED_IMAGE_TYPES)
+
+
+def test_a_rejected_request_is_described_but_never_echoed_back():
+    import asyncio
+    import json
+    from fastapi.exceptions import RequestValidationError
+    from src.api.main import validation_error
+
+    big = "A" * 5000
+    exc = RequestValidationError([{"type": "value_error", "loc": ("body", "image"), "msg": "Value error, bad image",
+                                   "input": big, "ctx": {"error": ValueError("bad image")}}])
+    response = asyncio.run(validation_error(None, exc))
+    assert response.status_code == 422
+    assert json.loads(response.body) == {"detail": [{"loc": ["body", "image"], "msg": "Value error, bad image", "type": "value_error"}]}
+    assert big.encode() not in response.body

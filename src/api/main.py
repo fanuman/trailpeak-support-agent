@@ -9,12 +9,14 @@ load_secret_into_env()
 from src.rag.pipeline import RAGPipeline
 from src.api.streaming import sse_stream
 from src.api.models import ClientConfig, CostSummary, RagRequest, RagResponse
-from src.core.config import MAX_HISTORY_MESSAGES, MAX_MESSAGE_CHARS, RATE_LIMIT
+from src.core.config import (ALLOWED_IMAGE_TYPES, IMAGE_MAX_SIDE, MAX_HISTORY_MESSAGES, MAX_IMAGE_BYTES,
+                             MAX_MESSAGE_CHARS, RATE_LIMIT)
 from src.cost.report import summarize
 
 from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -53,6 +55,14 @@ if CORS_ORIGINS:
     app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_methods=["*"], allow_headers=["*"])
 
 
+@app.exception_handler(RequestValidationError)
+async def validation_error(request, exc):
+    """A rejected request gets a 422 that names what is wrong, but never echoes the request back
+    (FastAPI's default does, and a rejected photo would be sent back to the client in full)."""
+    errors = [{"loc": list(e["loc"]), "msg": e["msg"], "type": e["type"]} for e in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": errors})
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -61,7 +71,9 @@ def health():
 @app.get("/config", response_model=ClientConfig)
 def client_config():
     """The limits the web page has to match, so they are defined in one place (src/core/config.py)."""
-    return ClientConfig(max_history_messages=MAX_HISTORY_MESSAGES, max_message_chars=MAX_MESSAGE_CHARS)
+    return ClientConfig(max_history_messages=MAX_HISTORY_MESSAGES, max_message_chars=MAX_MESSAGE_CHARS,
+                        max_image_bytes=MAX_IMAGE_BYTES, image_max_side=IMAGE_MAX_SIDE,
+                        image_types=list(ALLOWED_IMAGE_TYPES))
 
 
 @app.get("/cost", response_model=CostSummary)
@@ -80,12 +92,13 @@ def _history(rag_request):
 @limiter.limit(RATE_LIMIT)
 def ask(request: Request, rag_request: RagRequest):
     try:
-        result = rag_pipeline.answer(rag_request.message, history=_history(rag_request))
+        result = rag_pipeline.answer(rag_request.message, history=_history(rag_request), image=rag_request.image)
         return RagResponse(
             reply=result["answer"],
             sources=result["sources"],
             used_fallback=result["used_fallback"],
             from_cache=result["from_cache"],
+            image_note=result["image_note"],
         )
     except Exception:
         logger.exception("/ask failed")
@@ -96,7 +109,7 @@ def ask(request: Request, rag_request: RagRequest):
 @limiter.limit(RATE_LIMIT)
 def ask_stream(request: Request, rag_request: RagRequest):
     return StreamingResponse(
-        sse_stream(rag_pipeline.answer_stream(rag_request.message, history=_history(rag_request))),
+        sse_stream(rag_pipeline.answer_stream(rag_request.message, history=_history(rag_request), image=rag_request.image)),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},  # stop proxies from buffering the stream
     )

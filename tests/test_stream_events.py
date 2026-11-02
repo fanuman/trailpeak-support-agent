@@ -55,7 +55,8 @@ class FakeOpenAI:
     `parse` is the structured-output call that answer() makes at the end."""
 
     def __init__(self, tool_calls=None, always_tools=False, stream_text=("Hello", " world"), tool_turn_text="",
-                 rewrite_text="Does the SummitCarry backpack come in blue?", rewrite_error=False):
+                 rewrite_text="Does the SummitCarry backpack come in blue?", rewrite_error=False,
+                 describe_text="A red rain jacket with a torn zipper", describe_error=False):
         self.tool_calls = tool_calls
         self.always_tools = always_tools
         self.stream_text = stream_text
@@ -65,11 +66,20 @@ class FakeOpenAI:
         self.rewrite_calls = [] # the small non-streamed call that rewrites a follow-up
         self.rewrite_text = rewrite_text
         self.rewrite_error = rewrite_error
+        self.describe_calls = []  # the small non-streamed call that puts a photo into words
+        self.describe_text = describe_text
+        self.describe_error = describe_error
         self.embedded = []      # every text that was sent to the embedding model
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create, parse=self._parse))
 
     def _create(self, **kwargs):
-        if not kwargs.get("stream"):   # the rewrite call is the only one that is not streamed
+        if not kwargs.get("stream"):   # the rewrite call and the describe-the-photo call are the ones that are not streamed
+            if any(isinstance(m["content"], list) for m in kwargs["messages"]):   # a photo is in it: this is the describe call
+                self.describe_calls.append(kwargs)
+                if self.describe_error:
+                    raise RuntimeError("the describe call failed")
+                return SimpleNamespace(usage=SimpleNamespace(prompt_tokens=90, completion_tokens=12),
+                                       choices=[SimpleNamespace(message=SimpleNamespace(content=self.describe_text))])
             self.rewrite_calls.append(kwargs)
             if self.rewrite_error:
                 raise RuntimeError("the rewrite call failed")
@@ -489,3 +499,150 @@ def test_answer_also_understands_history(monkeypatch):
     assert client.embedded == [REWRITTEN]
     assert costs.labels == ["rewrite_question", "agent_iteration", "final_answer"]
     assert cache.stored == []
+
+
+# ---------- photos: describe it, search with the words, never cache ---------------------
+
+PHOTO = "data:image/jpeg;base64,/9j/4AAQ"
+NOTE = "A red rain jacket with a torn zipper"
+PHOTO_QUESTION = "can I return this?"
+
+
+def test_a_photo_is_put_into_words_and_the_trail_says_so(monkeypatch):
+    p, client, cache, costs = make_pipeline(monkeypatch)
+    events = list(p.answer_stream(PHOTO_QUESTION, image=PHOTO))
+
+    assert events[0] == ("step", {"id": "image", "label": "Reading your photo", "detail": "", "status": "running"})
+    assert events[1] == ("step", {"id": "image", "label": "Read your photo", "detail": NOTE, "status": "done"})
+    assert events[2] == ("image_note", {"note": NOTE})
+    assert events[3][1]["id"] == "search"
+    assert len(client.describe_calls) == 1 and costs.labels[0] == "describe_image"
+
+
+def test_what_the_photo_shows_is_added_to_what_gets_searched(monkeypatch):
+    p, client, *_ = make_pipeline(monkeypatch)
+    list(p.answer_stream(PHOTO_QUESTION, image=PHOTO))
+    assert client.embedded == [f"{NOTE} {PHOTO_QUESTION}"]
+
+
+def test_the_describe_call_is_small_and_deterministic_and_carries_the_photo(monkeypatch):
+    p, client, *_ = make_pipeline(monkeypatch)
+    list(p.answer_stream(PHOTO_QUESTION, image=PHOTO))
+    call = client.describe_calls[0]
+    assert call["temperature"] == 0 and call["max_tokens"] <= 300
+    assert call["messages"][1]["content"][1]["image_url"]["url"] == PHOTO
+
+
+def test_the_answering_model_sees_the_photo_itself_and_the_real_question(monkeypatch):
+    p, client, *_ = make_pipeline(monkeypatch)
+    list(p.answer_stream(PHOTO_QUESTION, image=PHOTO))
+
+    content = client.calls[0]["messages"][-1]["content"]
+    assert [part["type"] for part in content] == ["text", "image_url"]
+    assert content[1]["image_url"] == {"url": PHOTO, "detail": "low"}
+    assert f"Question: {PHOTO_QUESTION}" in content[0]["text"] and "The customer attached a photo" in content[0]["text"]
+
+
+def test_a_question_without_a_photo_is_unchanged(monkeypatch):
+    p, client, cache, costs = make_pipeline(monkeypatch)
+    events = list(p.answer_stream("What is your return policy?"))
+
+    assert client.describe_calls == [] and "describe_image" not in costs.labels
+    assert all(data.get("id") != "image" for name, data in events if name == "step")
+    assert "image_note" not in names(events)
+    assert isinstance(client.calls[0]["messages"][-1]["content"], str)
+    assert "photo" not in client.calls[0]["messages"][-1]["content"].lower()
+
+
+def test_a_photo_question_never_reads_the_cache(monkeypatch):
+    p, client, cache, costs = make_pipeline(
+        monkeypatch, cache_hit={"response": "an answer about some other photo", "full_context": "", "sources": []})
+    events = list(p.answer_stream(PHOTO_QUESTION, image=PHOTO))
+
+    assert reply_text(events) == "Hello world"              # the model answered; the saved answer was not used
+    assert events[-1][1]["cached"] is False and len(client.calls) == 1
+
+
+def test_a_photo_answer_is_never_cached(monkeypatch):
+    p, client, cache, costs = make_pipeline(monkeypatch)
+    list(p.answer_stream(PHOTO_QUESTION, image=PHOTO))
+    assert cache.stored == []
+
+
+def test_if_describing_the_photo_fails_the_question_is_still_answered(monkeypatch):
+    p, client, cache, costs = make_pipeline(monkeypatch, describe_error=True)
+    events = list(p.answer_stream(PHOTO_QUESTION, image=PHOTO))
+
+    assert client.embedded == [PHOTO_QUESTION]
+    assert "image_note" not in names(events)
+    assert events[1] == ("step", {"id": "image", "label": "Read your photo", "detail": "", "status": "done"})
+    assert reply_text(events) == "Hello world" and events[-1][0] == "done"
+    assert [part["type"] for part in client.calls[0]["messages"][-1]["content"]] == ["text", "image_url"]   # the model still gets the photo
+    assert "describe_image" not in costs.labels
+
+
+def test_a_long_description_is_clipped_for_the_search_and_shortened_in_the_trail(monkeypatch):
+    p, client, *_ = make_pipeline(monkeypatch, describe_text="word " * 400)
+    events = list(p.answer_stream(PHOTO_QUESTION, image=PHOTO))
+
+    note = events[2][1]["note"]
+    assert len(note) <= 500 and "\n" not in note
+    assert client.embedded == [f"{note} {PHOTO_QUESTION}"]
+    shown = events[1][1]["detail"]
+    assert len(shown) <= 93 and shown.endswith("...")
+
+
+def test_the_description_is_one_line_with_single_spaces(monkeypatch):
+    p, client, *_ = make_pipeline(monkeypatch, describe_text="  A red jacket\n with   a torn zipper \n")
+    assert p._describe_image(PHOTO) == "A red jacket with a torn zipper"
+
+
+def test_a_photo_in_a_follow_up_is_read_after_the_rewrite_and_both_feed_the_search(monkeypatch):
+    p, client, cache, costs = make_pipeline(monkeypatch)
+    events = list(p.answer_stream(FOLLOW_UP, history=HISTORY, image=PHOTO))
+
+    assert [data["id"] for name, data in events if name == "step"][:3] == ["rewrite", "rewrite", "image"]
+    assert client.embedded == [f"{NOTE} {REWRITTEN}"]
+    assert costs.labels[:2] == ["rewrite_question", "describe_image"]
+    sent = client.calls[0]["messages"]
+    assert [m["role"] for m in sent] == ["system", "user", "assistant", "user"]
+    assert isinstance(sent[1]["content"], str) and isinstance(sent[3]["content"], list)      # only the new question carries a photo
+
+
+def test_a_photo_that_matches_nothing_gets_the_fallback_message(monkeypatch):
+    p, client, *_ = make_pipeline(monkeypatch, distances=(0.9,), describe_text="A cat on a sofa")
+    events = list(p.answer_stream("what is this?", image=PHOTO))
+    assert reply_text(events) == p.FALLBACK_MESSAGE and events[-1][1]["fallback"] is True
+    assert client.calls == []
+
+
+def test_answer_reads_the_photo_too_and_reports_what_it_showed(monkeypatch):
+    p, client, cache, costs = make_pipeline(monkeypatch)
+    result = p.answer(PHOTO_QUESTION, image=PHOTO)
+
+    assert result["answer"] == "Structured answer" and result["image_note"] == NOTE
+    assert client.embedded == [f"{NOTE} {PHOTO_QUESTION}"]
+    assert costs.labels == ["describe_image", "agent_iteration", "final_answer"]
+    assert isinstance(client.parse_calls[0]["messages"][1]["content"], list)               # the photo is in the final call too
+    assert cache.stored == []
+
+
+def test_answer_without_a_photo_has_an_empty_image_note(monkeypatch):
+    p, client, *_ = make_pipeline(monkeypatch)
+    assert p.answer("What is your return policy?")["image_note"] == ""
+    assert client.describe_calls == []
+
+
+def test_the_trace_keeps_the_size_of_the_photo_but_not_the_photo():
+    inputs = {"query": "q", "image": PHOTO}
+    hidden = pl._hide_image(inputs)
+    assert hidden == {"query": "q", "image": f"<photo, {len(PHOTO)} characters>"}
+    assert inputs["image"] == PHOTO                                       # the original is untouched
+    assert pl._hide_image({"query": "q", "image": None}) == {"query": "q", "image": None}
+
+
+def test_a_shortened_description_never_ends_in_four_dots():
+    from src.rag.events import image_step
+    cut_right_after_a_full_stop = "x" * 89 + ". and then some more words"
+    shown = image_step(cut_right_after_a_full_stop)[1]["detail"]
+    assert shown == "x" * 89 + "..."

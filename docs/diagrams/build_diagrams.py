@@ -156,7 +156,7 @@ def question_path():
             "answer, streaming tokens to the browser. The SOURCES line is hidden and turned into source chips, the answer "
             "is cached if no tool was used, and a done event ends the stream.")
     header(s, "What happens to one question in /ask/stream",
-           "Row 1 decides whether to answer at all. Row 2 writes the answer and streams it. A follow-up takes the detour on the left.")
+           "Row 1 decides whether to answer at all. Row 2 writes the answer and streams it. A follow-up or a photo takes the detour on the left.")
 
     y1 = 225
     s.node(95, y1, 140, 84, "end", [("Question", "t"), ("from the UI", "d")])
@@ -166,12 +166,12 @@ def question_path():
     s.node(880, y1, 170, 84, "decide", [("in scope?", "t"), ("closest chunk < 0.68", "d"), ("distance", "m")])
     s.node(1115, y1, 210, 84, "end", [("fallback message", "t"), ("no model call", "d"), ("done: fallback", "m")])
     s.node(470, 118, 270, 54, "end", [("saved answer + its sources", "t"), ("sent at once; done: cached", "d")])
-    s.node(150, 118, 220, 54, "llm", [("rewrite the follow-up", "t"), ("only if history was sent", "d")])
+    s.node(150, 110, 230, 74, "llm", [("prepare the question", "t"), ("follow-up: rewrite it", "d"), ("photo: put it into words", "d")])
 
     s.arrow([(165, y1), (200, y1)])
-    s.arrow([(95, y1 - 42), (95, 145)], color="ink")
-    s.label(86, 168, "has history", anchor="end")
-    s.arrow([(230, 145), (230, y1 - 42)], color="ink")
+    s.arrow([(95, y1 - 42), (95, 147)], color="ink")
+    s.label(105, 172, "follow-up or photo")
+    s.arrow([(230, 147), (230, y1 - 42)], color="ink")
     s.arrow([(350, y1), (385, y1)])
     s.arrow([(555, y1), (595, y1)], color="ink")
     s.label(575, y1 - 12, "miss")
@@ -194,7 +194,7 @@ def question_path():
     s.text(580, 534, "A turn with no tool request is the answer. Maximum 6 turns, then a safe message.", 12, "normal", SOFT)
 
     s.node(445, 455, 200, 84, "code", [("sources", "t"), ("SOURCES: line hidden", "d"), ("names checked", "d")])
-    s.node(235, 455, 170, 84, "store", [("cache it", "t"), ("only if no tool and", "d"), ("not a follow-up", "d")])
+    s.node(235, 455, 170, 84, "store", [("cache it", "t"), ("no tool, no photo,", "d"), ("not a follow-up", "d")])
     s.node(75, 455, 120, 84, "end", [("done", "t"), ("sources", "d"), ("chips", "d")])
     s.arrow([(635, 455), (545, 455)])
     s.label(590, 445, "answer")

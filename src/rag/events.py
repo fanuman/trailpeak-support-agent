@@ -9,6 +9,9 @@ TOOL_LABELS = {
 }
 
 
+IMAGE_STEP_DETAIL_CHARS = 90   # how much of the photo's description the trail shows
+
+
 def search_step(label, detail="", status="done"):
     return "step", {"id": "search", "label": label, "detail": detail, "status": status}
 
@@ -17,6 +20,15 @@ def rewrite_step(detail="", status="done"):
     """Shown only for a follow-up: the question is rewritten so it makes sense without the conversation."""
     label = "Reading your follow-up" if status == "running" else "Read your follow-up"
     return "step", {"id": "rewrite", "label": label, "detail": detail, "status": status}
+
+
+def image_step(detail="", status="done"):
+    """Shown only when a photo was sent: the photo is read and put into words, and those words
+    are used to search. The trail shows a short version of them."""
+    label = "Reading your photo" if status == "running" else "Read your photo"
+    if len(detail) > IMAGE_STEP_DETAIL_CHARS:
+        detail = detail[:IMAGE_STEP_DETAIL_CHARS].rstrip(" .,;:-") + "..."
+    return "step", {"id": "image", "label": label, "detail": detail, "status": status}
 
 
 def tool_step(request, args, status, result=""):

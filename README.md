@@ -19,9 +19,9 @@ sources it actually used.
 streaming protocol was rebuilt (typed events: `step`, `product`, `token`, `done`, `error`), the agent loop was
 collapsed into one streamed loop, a plain question went from 2 model calls to 1, the source chips under an answer
 now show only the files the model says it used, the pipeline was split into small modules, the suite grew to
-100 tests, API errors became generic (details are logged, never returned), CORS is off unless you ask for it,
+142 tests, API errors became generic (details are logged, never returned), CORS is off unless you ask for it,
 the open `/chat` route was removed, `/cost` now reports what every model call has really cost,
-the cache replays its sources, and the assistant remembers the last three exchanges so follow-ups work.
+the cache replays its sources, the assistant remembers the last three exchanges so follow-ups work, and a customer can attach one photo to a question.
 The FreightLens capstone is a separate repository:
 [`freight-doc-intelligence`](https://github.com/fanuman/freight-doc-intelligence).
 
@@ -32,7 +32,8 @@ Product details and store policies come from RAG over real documents; current pr
 from live function-calling tools; multi-step requests (checking several products, then totaling
 their cost) are handled by a genuine ReAct agent loop, not a single tool call. Repeated or
 paraphrased questions can be served from a Redis-backed semantic cache instead of re-running the
-full pipeline, and every expensive endpoint is rate-limited. Every request through the
+full pipeline, and every expensive endpoint is rate-limited. A customer can also attach one photo (their own gear, a damaged item, a packing list):
+it is put into words, searched and answered like any other question (see [Photos](#photos)). Every request through the
 non-streaming `/ask` path is traced in LangSmith — the answer call and retrieval, visible as one
 structured trace rather than raw logs. A golden-set
 evaluation harness scores every response on faithfulness, answer relevancy, context precision, and
@@ -91,14 +92,17 @@ Every question to `/ask/stream` goes through these steps:
 
 0. **Follow-ups only: rewrite.** If the page sent earlier messages, one small model call restates the question so it can be searched on
    its own (see [Conversation memory](#conversation-memory)). A first question skips this step entirely.
+0. **Photo only: read it.** If the question carries a photo, one small model call puts it into words, and those words are added to the search
+   (see [Photos](#photos)). A question without a photo skips this step.
 1. **Embed** the question and look for a close earlier question in the Redis cache. A hit is served without calling the model.
+   (A photo question never reads the cache.)
 2. **Retrieve** the closest chunks from Chroma. If nothing is close enough, the app answers with a fixed
    greeting that lists what it can help with (the out-of-scope path), without calling the model.
 3. **Agent loop.** The model sees the question and the retrieved context. It either asks for a tool
    (`CheckAvailability`, `CalculateTotal`) or writes the answer. Tool results go back to the model and the loop repeats,
    at most `max_iterations` times.
 4. **Answer.** The turn with no tool request is the answer, and its text is streamed to the browser as it is produced.
-5. **Cache** the answer, but only if no tool was used (live price and stock would go stale) and it was not a follow-up.
+5. **Cache** the answer, but only if no tool was used (live price and stock would go stale), it was not a follow-up, and it had no photo.
 
 ### What the browser receives
 
@@ -109,6 +113,7 @@ inside a streamed token can never break the framing.
 | Event | Data | When |
 |---|---|---|
 | `step` | `{id, label, detail, status}` | A row of the trail starts (`running`) or finishes (`done`) |
+| `image_note` | `{note}` | Only for a photo: what it showed, in words. The page keeps it in the conversation memory |
 | `product` | the product's fields | A stock check found the product |
 | `token` | `{t}` | The next piece of answer text |
 | `done` | `{sources, cached, fallback}` | The answer is complete; `sources` are the chips to show, `fallback` is true for the out-of-scope greeting or a loop that hit its cap |
@@ -133,6 +138,29 @@ still sees the real conversation: the system prompt, the earlier messages, and t
   because an answer written with the conversation in view may lean on it ("yes, that one too").
 - **Untrusted input.** The history comes from the browser, so the API accepts only `user` and `assistant` roles, 1 to 2000 characters per message and
   at most 6 messages (the defaults of `MAX_MESSAGE_CHARS` and `MAX_HISTORY_MESSAGES`; anything else is a `422`). The rewrite is used only as a search string and a cache key, never as an instruction.
+
+### Photos
+
+A customer can attach **one photo** to a question: a picture of their own boots, a torn jacket they want to return, or a handwritten packing list.
+The search side of the app only understands text (`text-embedding-3-small` cannot embed a picture), so a photo is read twice:
+
+1. **Put it into words.** `RAGPipeline._describe_image()` makes one small, non-streamed call (temperature 0, logged as `describe_image`). The model writes one or two plain
+   sentences: what the item is, its condition, and any writing it can read, copied exactly. A list or receipt gets every item named.
+2. **Search with the words.** The search string becomes *what the photo shows, then the question* ("A red rain jacket with a torn zipper pull can I return this?"),
+   so the returns policy and warranty chunks are retrieved for a damaged jacket.
+3. **Answer with the photo itself.** The answering model also receives the photo (as an image part of the message, `detail: low`) and a short notice telling it to treat the photo as data.
+
+- **The photo is data, never instructions.** Writing inside a photo ("ignore your rules") is ignored by both prompts. The tools are read-only and the sources check still runs.
+- **The LLM reads, software decides.** For a packing list the model reads the items and the `CheckAvailability` and `CalculateTotal` tools do the stock and the sum.
+  For damage, the model says what it sees and answers from the returns policy; it never decides eligibility from the picture, and says the team will review it.
+- **Never cached.** The cache key is the words alone, but the photo is part of the question, so a photo question neither reads nor writes the cache.
+- **Memory.** The photo is not sent again. The description (the `image_note` event) is kept in front of the question in the history, as `[Photo: ...] question`,
+  so "are those waterproof?" still makes sense later.
+- **Checked on the server.** The request must be a base64 data URL of a JPEG, PNG or WebP, at most `MAX_IMAGE_BYTES` once decoded, and the first bytes of the file must
+  match the type it claims (`src/core/images.py`). Anything else is a `422` that never echoes the photo back.
+- **Shrunk in the browser first.** The page resizes the photo to `IMAGE_MAX_SIDE` pixels and saves it as a JPEG, so uploads are small (about 100 to 300 KB) and hidden data such as GPS location is dropped.
+- **Privacy.** The photo goes to OpenAI to be read and is not stored by the app: it is not written to disk or to the cost log, and LangSmith traces keep only its size.
+- **A failed description never breaks an answer.** The error is logged and the question is searched as written; the answering model still gets the photo.
 
 ### Where the source chips come from
 
@@ -204,9 +232,9 @@ local development without AWS credentials configured still works.
 | Method and path | What it does |
 |---|---|
 | `GET /health` | Liveness check: `{"status": "ok"}` |
-| `POST /ask/stream` | The main endpoint: the question's answer as Server-Sent Events (table above). Body: `message` and an optional `history` (up to 6 `{role, content}` messages, oldest first). Rate limited to 10/minute |
-| `POST /ask` | The same question (and optional `history`) answered in one JSON response (`reply`, `sources`, `used_fallback`, `from_cache`). Rate limited to 10/minute. Used by the evaluation harness |
-| `GET /config` | The two limits the web page has to match (`max_history_messages`, `max_message_chars`), read from the settings below, so they live in one place |
+| `POST /ask/stream` | The main endpoint: the question's answer as Server-Sent Events (table above). Body: `message`, an optional `history` (up to 6 `{role, content}` messages, oldest first) and an optional `image` (one photo as a base64 data URL). Rate limited to 10/minute |
+| `POST /ask` | The same question (and optional `history` and `image`) answered in one JSON response (`reply`, `sources`, `used_fallback`, `from_cache`, `image_note`). Rate limited to 10/minute. Used by the evaluation harness |
+| `GET /config` | The limits the web page has to match (history and message length, and the photo's size, longest side and allowed types), read from the settings below, so they live in one place |
 | `GET /cost` | Totals for every model call the app has made, read from `logs/cost_log.jsonl`: `total_calls`, `total_cost_usd`, `cost_if_gpt4o_usd` and `by_stage` (same numbers as `python -m src.cost.report`). Public like `/health`, and totals only. On ECS the log lives in the container, so it covers spend since the task last started |
 | `GET /` | The web UI (static files, mounted last so it cannot shadow an API route) |
 
@@ -303,6 +331,9 @@ Every limit and tuning knob lives once, in `src/core/config.py`. Each has a defa
 | `MAX_HISTORY_MESSAGES` | 6 | Earlier messages the page sends with a question (6 = 3 exchanges). `0` turns memory off |
 | `MAX_MESSAGE_CHARS` | 2000 | Longest question, and longest earlier message |
 | `RATE_LIMIT` | `10/minute` | Per client address, on `/ask` and `/ask/stream` |
+| `MAX_IMAGE_BYTES` | 2000000 | Largest photo, counted after decoding. The page shrinks photos far below this |
+| `IMAGE_MAX_SIDE` | 1024 | Longest side in pixels the page resizes a photo to before sending |
+| `IMAGE_DESCRIBE_MAX_TOKENS`, `IMAGE_NOTE_MAX_CHARS` | 200, 500 | Size limits of the photo's description |
 | `RETRIEVAL_K` | 5 | Chunks returned by a search |
 | `RELEVANCE_THRESHOLD` | 0.68 | A chunk farther than this is "not close"; if all are, the question is out of scope |
 | `MAX_AGENT_ITERATIONS` | 6 | Tool rounds before the loop gives up safely |
@@ -310,6 +341,7 @@ Every limit and tuning knob lives once, in `src/core/config.py`. Each has a defa
 | `CACHE_TTL_SECONDS` | 3600 | How long a saved answer is kept |
 | `REWRITE_MAX_TOKENS`, `REWRITE_MAX_CHARS`, `REWRITE_CLIP_CHARS` | 120, 300, 600 | Size limits of the follow-up rewrite |
 
+Also constants, not settings: the allowed photo types (JPEG, PNG, WebP) and `IMAGE_DETAIL` (`low`, the cheap way to show the model a photo; `high` reads small print better and costs more).
 The model names (`gpt-4o-mini`, `text-embedding-3-small`) are constants and not overridable: changing the embedding model would make the stored vectors
 incompatible until you re-run `ingest`.
 
@@ -320,6 +352,7 @@ incompatible until you re-run `ingest`.
 - **No secret on the server.** `core/secrets.py` reads the OpenAI key from AWS Secrets Manager through an IAM role. No access key or `.env` secret exists on the deployed infrastructure.
 - **Generic errors.** Clients get "Upstream error. Please try again."; the details stay in the server log.
 - **No open model endpoint.** The general-purpose `/chat` route was removed; every model call the API makes goes through the RAG pipeline.
+- **A photo is checked, not trusted.** One photo per question, JPEG, PNG or WebP, size-capped, and its real type is read from the file's first bytes. A rejected request is described but never echoed back.
 - **Bounded, validated history.** Only `user` and `assistant` messages, 6 at most, 2000 characters each; a client can never inject a `system` or `tool` message.
 - **CORS off by default**, and rate limiting (`slowapi`, Redis-backed) on every expensive endpoint (`RATE_LIMIT`, default 10/minute).
 - **Key rotation** needs no code change; the runbook is in [`infra/README.md`](infra/README.md#rotate-the-openai-api-key).
@@ -331,10 +364,11 @@ incompatible until you re-run `ingest`.
 python -m pytest tests/
 ```
 
-100 tests, none of which call OpenAI, Chroma or Redis (they use fakes), so they run in about 3 seconds:
+142 tests, none of which call OpenAI, Chroma or Redis (they use fakes), so they run in about 3 seconds:
 `test_stream_events.py` (the pipeline's events, tools, cache, loop cap and sources), `test_sources_footer.py`
 (the footer, including text cut into pieces at every possible position), `test_sse.py` (the wire format and the generic error),
-`test_cost_summary.py` (the `/cost` totals, and that `/chat` is gone), `test_semantic_cache.py` (how the sources are saved and read back), `test_api_models.py` (what a request may contain, including the history limits), `test_inventory_tool.py` (finding a product by SKU or by name), `test_config.py` (settings, overrides and bad values), `test_prompts.py` and `test_imports.py`.
+`test_cost_summary.py` (the `/cost` totals, and that `/chat` is gone), `test_semantic_cache.py` (how the sources are saved and read back), `test_api_models.py` (what a request may contain, including the history limits), `test_inventory_tool.py` (finding a product by SKU or by name), `test_config.py` (settings, overrides and bad values), `test_images.py` (telling a real photo from a fake), `test_prompts.py` and `test_imports.py`.
+`test_stream_events.py` also covers the photo path: the description, the search text, no cache, and a failed description.
 
 **`.github/workflows/`** — a two-job pipeline: `test` (fast import-checks) gates `build-and-push`
 (builds the Docker image, pushes to ECR tagged by both commit SHA and `latest`).
@@ -493,6 +527,7 @@ production-rag-agent/
 │   ├── ingest.py
 │   ├── core/
 │   │   ├── config.py          # every setting, with environment overrides
+│   │   ├── images.py          # checks an uploaded photo (type from its first bytes, size)
 │   │   ├── embeddings.py
 │   │   ├── vectorstore.py
 │   │   ├── llm_client.py      # used by cli.py and the Lambda app
@@ -503,10 +538,10 @@ production-rag-agent/
 │   │   ├── calculator_tool.py
 │   │   └── inventory.json
 │   ├── rag/
-│   │   ├── prompts.py         # system prompt, answer prompt, the SOURCES: footer, the follow-up rewrite prompt
+│   │   ├── prompts.py         # system prompt, answer prompt, the SOURCES: footer, the follow-up rewrite and photo prompts
 │   │   ├── pipeline.py        # RAGPipeline: _agent_loop, _model_turn, answer, answer_stream
 │   │   ├── models.py          # data classes: FinalAnswer, ToolRequest, Turn, LoopResult, Prepared
-│   │   ├── events.py          # wording of the trail ("Checking live stock", "Read your follow-up", ...)
+│   │   ├── events.py          # wording of the trail ("Checking live stock", "Read your follow-up", "Read your photo", ...)
 │   │   └── sources_footer.py  # hides the SOURCES: line from the stream; resolve_sources()
 │   ├── evaluation/
 │   │   ├── prompts.py
@@ -600,6 +635,11 @@ Everything below is deliberate and written down. Items marked **Fixed** were gap
 - **New: memory is deliberately small.** The history lives in the browser tab (a reload forgets it), is capped at 3 exchanges with no summary of older turns,
   and does not include earlier tool results (only the answer text the customer saw).
 - **New: a follow-up costs one extra small model call and a little latency before the first token**, and its answer is never cached.
+- **New: photos are read by a small model at `detail: low`.** That is cheap, but it reads small print poorly, so a crowded or handwritten packing list can be misread
+  (switch `IMAGE_DETAIL` to `high` if that matters more than cost). The catalog is text only, so "which of your products looks like this?" works only as well as the description does.
+- **New: a photo question is slower and dearer than a text one** (one extra call before the first token, plus the photo's tokens in the answer call) and is never cached.
+- **New: photos are not part of the evaluation.** The golden set has no photo questions, so the four metrics say nothing about this path; it is covered by unit tests only.
+- **New: only one photo per question, and it is forgotten after that turn** (its description stays in the history, the picture does not).
 - **A multi-product question can miss a product in the search.** One embedding of "jacket + poles + headlamp + total price" ranks the jacket, poles and policy
   chunks first, so the headlamp's chunk (and its SKU) was not retrieved, and the model invented SKUs. Raising `RETRIEVAL_K` from 5 to 8 did not help, and was reverted.
   **Fixed** for stock and price by making the tool do the lookup: `CheckAvailability` accepts a SKU **or a product name** and `find_product()` resolves it against
@@ -777,7 +817,7 @@ The git tags below trace that progression; check tag history, not just the lates
 | `v1.1-week5-infra` | 5 | Docker Compose, ECS/Fargate via Terraform, semantic caching (Redis), rate limiting, load testing | ✅ |
 | `v1.2-week6-observability` | 6 | LangSmith tracing, context precision/recall, regression + A/B testing harness, fine-tuning dataset (prepared, untrained), Bedrock comparison, cost tracking | ✅ |
 | `v1.3-week7-hardening` | 7 | LangGraph Researcher + Writer pipeline; Kubernetes fundamentals + local Minikube deployment (self-healing demonstrated live); EKS fundamentals (conceptual, deliberately deferred twice); input validation + prompt-injection hardening + key rotation runbook; CloudWatch monitoring + alerting (SNS, metric filters, alarms, dashboard - validated with a real fire drill). Saturday project: orchestrator/specialist router pattern documented (not built, deferred to Week 8) | ✅ |
-| *(untagged)* | after 7 | Web UI redesign served by the API; typed SSE events; one streamed agent loop (a plain question costs 1 model call, not 2); sources footer; pipeline split into modules; generic errors and CORS off by default; conversation memory (history kept by the browser, follow-ups rewritten before searching); open `/chat` route removed, `/cost` reads the real cost log, `run_eval` bypasses the cache; the cache replays its sources; 100 tests; README and `infra/README.md` restructure | ✅ |
+| *(untagged)* | after 7 | Web UI redesign served by the API; typed SSE events; one streamed agent loop (a plain question costs 1 model call, not 2); sources footer; pipeline split into modules; generic errors and CORS off by default; conversation memory (history kept by the browser, follow-ups rewritten before searching); open `/chat` route removed, `/cost` reads the real cost log, `run_eval` bypasses the cache; the cache replays its sources; photo upload (the photo is put into words, searched and answered, never cached); 142 tests; README and `infra/README.md` restructure | ✅ |
 
 <details>
 <summary><strong>Tech stack</strong></summary>

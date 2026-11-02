@@ -37,6 +37,14 @@ MAX_MESSAGE_CHARS = _setting("MAX_MESSAGE_CHARS", 2000, minimum=1)       # one q
 MAX_HISTORY_MESSAGES = _setting("MAX_HISTORY_MESSAGES", 6, minimum=0)    # 6 = 3 exchanges; 0 turns memory off
 RATE_LIMIT = _setting("RATE_LIMIT", "10/minute", str)                    # per client address, on /ask, /ask/stream
 
+# ---------- images (one per message) ------------------------------------------------
+MAX_IMAGE_BYTES = _setting("MAX_IMAGE_BYTES", 2_000_000, minimum=1)           # decoded size; the browser shrinks photos far below this
+IMAGE_MAX_SIDE = _setting("IMAGE_MAX_SIDE", 1024, minimum=64)                 # longest side in pixels; the web page resizes to this before sending
+IMAGE_DESCRIBE_MAX_TOKENS = _setting("IMAGE_DESCRIBE_MAX_TOKENS", 200, minimum=1)   # a description is a few short lines
+IMAGE_NOTE_MAX_CHARS = _setting("IMAGE_NOTE_MAX_CHARS", 500, minimum=1)       # longest description kept for search and for the history
+ALLOWED_IMAGE_TYPES = ("image/jpeg", "image/png", "image/webp")               # fixed on purpose: not overridable
+IMAGE_DETAIL = "low"                                                          # "low" = cheap; "high" reads small print better
+
 # ---------- rewriting a follow-up into a standalone question -------------------------
 REWRITE_MAX_TOKENS = _setting("REWRITE_MAX_TOKENS", 120, minimum=1)      # a rewritten question is one short line
 REWRITE_MAX_CHARS = _setting("REWRITE_MAX_CHARS", 300, minimum=1)        # longest rewrite we will search with

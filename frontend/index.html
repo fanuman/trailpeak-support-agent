@@ -165,6 +165,21 @@
   }
   .go:disabled { background: var(--line); color: var(--ink-2); cursor: not-allowed; }
   .go svg { width: 20px; height: 20px; }
+  .attach {
+    flex: none; width: 44px; height: 44px; margin-left: -8px; border-radius: 12px; border: 0; cursor: pointer;
+    background: transparent; color: var(--ink-2); display: grid; place-items: center;
+  }
+  .attach:hover { background: var(--glacier-tint); color: var(--ink); }
+  .attach svg { width: 22px; height: 22px; }
+  .attached-row { max-width: 760px; margin: 0 auto 8px; }
+  .attached { display: inline-flex; align-items: center; gap: 12px; padding: 6px 6px 6px 6px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; }
+  .attached img { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; display: block; }
+  .attached span { font-size: 15px; color: var(--ink-2); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .attached button { font: inherit; font-size: 20px; line-height: 1; color: var(--ink-2); background: none; border: 0; border-radius: 8px; width: 36px; height: 36px; cursor: pointer; }
+  .attached button:hover { color: var(--ink); background: var(--snow); }
+  .attach-note { max-width: 760px; margin: 0 auto 8px; font-size: 15px; }
+  .you.has-photo { flex-direction: column; align-items: flex-end; gap: 6px; }
+  .photo { display: block; max-width: min(240px, 70%); max-height: 240px; object-fit: cover; border-radius: 14px 14px 4px 14px; border: 1px solid var(--line); }
   .fine { max-width: 760px; margin: 8px auto 0; font-size: 13.5px; color: var(--ink-2); text-align: center; }
 
   :focus-visible { outline: 3px solid var(--glacier); outline-offset: 2px; }
@@ -195,7 +210,7 @@
     <div class="col" id="col">
       <section class="hello" id="hello">
         <h1>What are you gearing up for?</h1>
-        <p>Ask about products, live stock and prices, shipping, returns or warranty. Every answer shows where it came from.</p>
+        <p>Ask about products, live stock and prices, shipping, returns or warranty. Every answer shows where it came from. Attach a photo of your own gear and the desk will work from it.</p>
         <div class="ideas">
           <div>
             <h2>Gear</h2>
@@ -224,14 +239,26 @@
   </main>
 
   <div class="composer">
+    <p class="notice attach-note" id="attach-note" role="alert" hidden></p>
+    <div class="attached-row" id="attached" hidden>
+      <div class="attached">
+        <img id="attached-img" alt="The photo you are about to send">
+        <span id="attached-name"></span>
+        <button type="button" id="attached-remove" aria-label="Remove the photo">&times;</button>
+      </div>
+    </div>
     <form id="form" autocomplete="off">
+      <input type="file" id="file" accept="image/jpeg,image/png,image/webp" hidden>
+      <button class="attach" id="attach" type="button" aria-label="Attach a photo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="m21 16-5-5-9 9"/></svg>
+      </button>
       <label for="q" hidden>Your question</label>
-      <textarea id="q" rows="1" placeholder="Ask about gear, stock or returns" enterkeyhint="send"></textarea>
+      <textarea id="q" rows="1" placeholder="Ask about gear, stock or returns, or attach a photo" enterkeyhint="send"></textarea>
       <button class="go" id="go" type="submit" aria-label="Send question">
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 16V4M4.5 9.5 10 4l5.5 5.5"/></svg>
       </button>
     </form>
-    <p class="fine">Answers come from TrailPeak documents and live inventory. Check the sources before you buy.</p>
+    <p class="fine">Answers come from TrailPeak documents and live inventory. Check the sources before you buy. Photos are read by OpenAI and are not saved here.</p>
   </div>
 </div>
 
@@ -251,16 +278,21 @@
   const ICON_STOP = '<svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="10" height="10" rx="2"/></svg>';
 
   let busy = false, controller = null;
+  let pending = null;   // the photo waiting to be sent: { dataUrl, name, kb }
 
   // ---- limits ------------------------------------------------------------------
   // The API owns these (src/core/config.py) and the page asks for them when it loads. The numbers here
   // are only a fallback for the moment before the answer arrives, and for ?demo, which has no backend.
-  const limits = { maxHistory: 6, maxChars: 2000 };
+  const limits = { maxHistory: 6, maxChars: 2000, maxImageBytes: 2000000, imageMaxSide: 1024, imageTypes: ['image/jpeg', 'image/png', 'image/webp'] };
   if (!DEMO) {
     fetch(`${API}/config`).then((r) => (r.ok ? r.json() : null)).then((c) => {
       if (!c) return;
       limits.maxHistory = c.max_history_messages; limits.maxChars = c.max_message_chars;
       q.maxLength = c.max_message_chars;
+      if (c.max_image_bytes) {
+        limits.maxImageBytes = c.max_image_bytes; limits.imageMaxSide = c.image_max_side; limits.imageTypes = c.image_types;
+        $('file').accept = c.image_types.join(',');
+      }
     }).catch(() => {});
   }
 
@@ -268,10 +300,14 @@
   // The server remembers nothing between questions. This page keeps the finished exchanges and
   // sends the last few with each new question, so "what about the blue one?" can be understood.
   // "New chat" reloads the page, which empties it.
+  // A photo is not kept: it is not sent again. What it showed, in words (the server's image_note event), is
+  // kept in front of the question instead, so "are those waterproof?" still makes sense two questions later.
   const history = [];
-  function remember(question, answer, info) {
+  function remember(question, answer, info, photo) {
     if (!answer || info?.fallback) return;     // nothing worth remembering
-    history.push({ role: 'user', content: question.slice(0, limits.maxChars) }, { role: 'assistant', content: answer.slice(0, limits.maxChars) });
+    const prefix = photo ? `[Photo: ${photo.note || 'attached'}] ` : '';
+    const said = prefix + question.slice(0, Math.max(0, limits.maxChars - prefix.length));
+    history.push({ role: 'user', content: said.slice(0, limits.maxChars) }, { role: 'assistant', content: answer.slice(0, limits.maxChars) });
     history.splice(0, Math.max(0, history.length - limits.maxHistory));
   }
 
@@ -297,10 +333,13 @@
   // ---- building one turn ---------------------------------------------------
   function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
 
-  function startTurn(question) {
+  function startTurn(question, photo) {
     $('hello')?.remove();
     const turn = el('article', 'turn');
-    turn.append(el('div', 'you', `<p>${esc(question)}</p>`));
+    const you = el('div', photo ? 'you has-photo' : 'you');
+    if (photo) { const img = el('img', 'photo'); img.src = photo.dataUrl; img.alt = 'The photo you sent'; you.append(img); }
+    you.append(el('p', null, esc(question)));
+    turn.append(you);
     const desk = el('div', 'desk');
     const trail = el('ol', 'trail'); trail.hidden = true;
     const tags = el('div', 'tags'); tags.hidden = true;
@@ -310,7 +349,7 @@
     turn.append(desk);
     col.append(turn);
     scroll();
-    return { turn, desk, trail, tags, answer, meta, text: '', steps: new Map(), skus: new Set() };
+    return { turn, desk, trail, tags, answer, meta, text: '', note: '', steps: new Map(), skus: new Set() };
   }
 
   function step(t, s) {
@@ -346,44 +385,46 @@
   function fail(t, message, retry) {
     t.answer.classList.remove('live');
     const n = el('p', 'notice', esc(message)); n.setAttribute('role', 'alert');
-    if (retry) { const b = el('button', null, 'Try again'); b.type = 'button'; b.onclick = () => { t.turn.remove(); ask(retry); }; n.append(b); }
+    if (retry) { const b = el('button', null, 'Try again'); b.type = 'button'; b.onclick = () => { t.turn.remove(); ask(retry.question, retry.photo); }; n.append(b); }
     t.answer.replaceChildren(n);
   }
 
   const scroll = () => { log.scrollTop = log.scrollHeight; };
 
   // ---- one question ----------------------------------------------------------
-  async function ask(question) {
+  async function ask(question, photo = null) {
     if (busy || !question.trim()) return;
     busy = true; controller = new AbortController();
     go.innerHTML = ICON_STOP; go.setAttribute('aria-label', 'Stop answering'); go.disabled = false;
-    const t = startTurn(question);
+    const t = startTurn(question, photo);
     try {
-      const events = DEMO ? demoStream(question, controller.signal) : liveStream(question, controller.signal);
+      const events = DEMO ? demoStream(question, controller.signal, photo) : liveStream(question, controller.signal, photo);
       for await (const { event, data } of events) {
         if (event === 'step') step(t, data);
+        else if (event === 'image_note') t.note = data.note;
         else if (event === 'product') product(t, data);
         else if (event === 'token') { t.text += data.t; t.answer.innerHTML = withCaret(markdown(t.text)); }
         else if (event === 'error') throw Object.assign(new Error(data.message), { friendly: true });
-        else if (event === 'done') { finish(t, data); remember(question, t.text, data); }
+        else if (event === 'done') { finish(t, data); remember(question, t.text, data, photo && { note: t.note }); }
         scroll();
       }
       if (t.answer.classList.contains('live')) finish(t, {});
     } catch (err) {
       if (err.name === 'AbortError') { t.text ? finish(t, {}) : fail(t, 'Stopped.', null); }
-      else if (err.status === 429) fail(t, 'You are asking faster than the desk can answer. Wait a moment and try again.', question);
-      else fail(t, err.friendly ? err.message : 'Could not reach the gear desk.', t.text ? null : question);
+      else if (err.status === 429) fail(t, 'You are asking faster than the desk can answer. Wait a moment and try again.', { question, photo });
+      else fail(t, err.status === 422 && photo ? 'The desk could not accept that photo. Try a different one.' : err.friendly ? err.message : 'Could not reach the gear desk.', t.text || err.status === 422 ? null : { question, photo });
     } finally {
       busy = false; controller = null;
-      go.innerHTML = ICON_SEND; go.setAttribute('aria-label', 'Send question'); go.disabled = !q.value.trim();
+      go.innerHTML = ICON_SEND; go.setAttribute('aria-label', 'Send question'); go.disabled = !q.value.trim() && !pending;
       q.focus({ preventScroll: true });
     }
   }
 
   // ---- real backend: Server-Sent Events, parsed properly -----------------------
-  async function* liveStream(question, signal) {
+  async function* liveStream(question, signal, photo) {
+    const body = { message: question, history, ...(photo ? { image: photo.dataUrl } : {}) };
     const res = await fetch(`${API}/ask/stream`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: question, history }), signal,
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal,
     });
     if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
     const reader = res.body.getReader(), decoder = new TextDecoder();
@@ -433,8 +474,19 @@
       sources: ['product_catalog.txt'],
       text: 'We do not have a winter-rated tent. The **AlpinePeak 2-Person Tent** is a 3-season tent and is not rated for heavy snow load.\n\nFor winter trips, the **CloudNine Sleeping Bag** is rated to 20F, which suits cold shoulder-season nights.' },
   ];
-  async function* demoStream(question, signal) {
-    const s = SCRIPTS.find((x) => x.match.test(question));
+  const PHOTO_NOTE = 'A rain jacket with a broken zipper pull';
+  const PHOTO_SCRIPT = {
+    steps: [['s1', 'Searched store documents', 'returns_policy.txt, warranty_policy.txt']], products: [],
+    sources: ['returns_policy.txt', 'warranty_policy.txt'],
+    text: 'I can see a rain jacket with a broken zipper pull.\n\nDefective items are covered by the warranty even after the 30-day return window. Keep your proof of purchase. The TrailPeak team will review your photo and confirm.',
+  };
+  async function* demoStream(question, signal, photo) {
+    const s = photo ? PHOTO_SCRIPT : SCRIPTS.find((x) => x.match.test(question));
+    if (photo) {
+      yield { event: 'step', data: { id: 'image', label: 'Reading your photo', detail: '', status: 'running' } }; await sleep(700, signal);
+      yield { event: 'step', data: { id: 'image', label: 'Read your photo', detail: PHOTO_NOTE, status: 'done' } };
+      yield { event: 'image_note', data: { note: PHOTO_NOTE } };
+    }
     for (const [id, label, detail] of s.steps) {
       yield { event: 'step', data: { id, label, detail, status: 'running' } }; await sleep(520, signal);
       yield { event: 'step', data: { id, label, detail, status: 'done' } };
@@ -445,14 +497,60 @@
   }
 
   // ---- wiring ------------------------------------------------------------------
-  function grow() { q.style.height = 'auto'; q.style.height = Math.min(q.scrollHeight, 140) + 'px'; go.disabled = !busy && !q.value.trim(); }
+  // ---- attaching a photo ------------------------------------------------------
+  // The page shrinks the photo and saves it again as a JPEG before sending: the upload stays small, and
+  // saving it again drops hidden data such as where a phone photo was taken.
+  const DEFAULT_PHOTO_QUESTION = 'What can you tell me about this, and which TrailPeak products would help?';
+  const friendly = (message) => Object.assign(new Error(message), { friendly: true });
+  const toDataUrl = (blob) => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(blob); });
+
+  async function prepare(file) {
+    if (!limits.imageTypes.includes(file.type)) throw friendly('Use a JPEG, PNG or WebP photo.');
+    let bitmap;
+    try { bitmap = await createImageBitmap(file); } catch { throw friendly('That file could not be opened as a photo.'); }
+    const scale = Math.min(1, limits.imageMaxSide / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale)); canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);     // a JPEG has no transparency
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height); bitmap.close?.();
+    for (const quality of [0.85, 0.7, 0.5]) {
+      const blob = await new Promise((done) => canvas.toBlob(done, 'image/jpeg', quality));
+      if (blob && blob.size <= limits.maxImageBytes) return { dataUrl: await toDataUrl(blob), name: file.name || 'Pasted photo', kb: Math.max(1, Math.round(blob.size / 1024)) };
+    }
+    throw friendly('That photo is too large, even after shrinking it.');
+  }
+
+  function setPending(photo) {
+    pending = photo;
+    $('attached').hidden = !photo;
+    if (photo) { $('attached-img').src = photo.dataUrl; $('attached-name').textContent = `${photo.name} (${photo.kb} KB)`; }
+    $('attach-note').hidden = true;
+    grow();
+  }
+
+  async function attach(file) {
+    if (!file) return;
+    try { setPending(await prepare(file)); }
+    catch (err) { const n = $('attach-note'); n.textContent = err.friendly ? err.message : 'That photo could not be read. Try another one.'; n.hidden = false; }
+  }
+
+  function grow() { q.style.height = 'auto'; q.style.height = Math.min(q.scrollHeight, 140) + 'px'; go.disabled = !busy && !q.value.trim() && !pending; }
   q.addEventListener('input', grow);
   q.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } });
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     if (busy) { controller?.abort(); return; }
-    const text = q.value.trim(); if (!text) return;
-    q.value = ''; grow(); ask(text);
+    const text = q.value.trim() || (pending ? DEFAULT_PHOTO_QUESTION : ''); if (!text) return;
+    const photo = pending;
+    q.value = ''; setPending(null); ask(text, photo);
+  });
+  $('attach').addEventListener('click', () => $('file').click());
+  $('file').addEventListener('change', (e) => { attach(e.target.files[0]); e.target.value = ''; });     // reset, so the same file can be chosen again
+  $('attached-remove').addEventListener('click', () => { setPending(null); q.focus(); });
+  q.addEventListener('paste', (e) => {
+    const file = [...(e.clipboardData?.files || [])].find((f) => f.type.startsWith('image/'));
+    if (file) { e.preventDefault(); attach(file); }
   });
   document.querySelectorAll('.idea').forEach((b) => b.addEventListener('click', () => ask(b.textContent.trim())));
   $('new-chat').addEventListener('click', () => { controller?.abort(); location.reload(); });

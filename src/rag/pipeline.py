@@ -5,11 +5,12 @@
 #   answer() / answer_stream()   the two public entry points. Each one is short:
 #        |
 #        +-- _rewrite()          (follow-ups only) restate the question so it stands on its own
+#        +-- _describe_image()   (photos only) put the photo into words, so it can be searched
 #        +-- _prepare()          embed the question, check the cache, retrieve, build the prompt
 #        +-- _agent_loop()       let the model call tools until it writes the answer
 #        |      +-- _model_turn()   one streamed call to the model
 #        |      +-- _run_tool()     run one tool the model asked for
-#        +-- _maybe_cache()      remember the answer (only if no live data was used)
+#        +-- _maybe_cache()      remember the answer (only if no live data was used, and no photo)
 #
 # The data shapes live in models.py; the wording of the UI trail lives in events.py.
 #
@@ -19,17 +20,18 @@ import json
 import logging
 from openai import OpenAI
 
-from src.core.config import (DEFAULT_MODEL, MAX_AGENT_ITERATIONS, RELEVANCE_THRESHOLD, RETRIEVAL_K,
-                             REWRITE_MAX_CHARS, REWRITE_MAX_TOKENS)
+from src.core.config import (DEFAULT_MODEL, IMAGE_DESCRIBE_MAX_TOKENS, IMAGE_NOTE_MAX_CHARS, MAX_AGENT_ITERATIONS,
+                             RELEVANCE_THRESHOLD, RETRIEVAL_K, REWRITE_MAX_CHARS, REWRITE_MAX_TOKENS)
 from src.core.embeddings import get_embedding
 from src.core.vectorstore import get_collection
 from src.tools.inventory_tool import TOOL_SCHEMA as AVAILABILITY_SCHEMA, TOOL_FUNCTION as AVAILABILITY_FUNCTION, get_product
 from src.tools.calculator_tool import TOOL_SCHEMA as CALC_SCHEMA, TOOL_FUNCTION as CALC_FUNCTION
-from src.rag.prompts import build_answer_prompt, build_rewrite_messages, FINAL_ANSWER_INSTRUCTION, SYSTEM_PROMPT
+from src.rag.prompts import (build_answer_prompt, build_describe_messages, build_rewrite_messages, build_search_text,
+                             build_user_content, FINAL_ANSWER_INSTRUCTION, SYSTEM_PROMPT)
 from src.core.semantic_cache import SemanticCache
 from src.cost.tracker import cost_tracker
 from src.rag.models import FinalAnswer, ToolRequest, Turn, LoopResult, Prepared
-from src.rag.events import rewrite_step, search_step, tool_step
+from src.rag.events import image_step, rewrite_step, search_step, tool_step
 from src.rag.sources_footer import SourcesFooter, resolve_sources
 
 from langsmith import traceable
@@ -60,6 +62,15 @@ def _drain(events):
         return stop.value
 
 
+def _hide_image(inputs):
+    """LangSmith saves the inputs of a traced function. A photo is private and large, so the trace
+    keeps only its size."""
+    inputs = dict(inputs)
+    if inputs.get("image"):
+        inputs["image"] = f"<photo, {len(inputs['image'])} characters>"
+    return inputs
+
+
 class RAGPipeline:
     def __init__(self, model=DEFAULT_MODEL, relevance_threshold=RELEVANCE_THRESHOLD, k=RETRIEVAL_K, max_iterations=MAX_AGENT_ITERATIONS, final_answer_instruction=None, use_cache=True):
         self.client = OpenAI()
@@ -80,18 +91,21 @@ class RAGPipeline:
 
     # ---------- the two public entry points ---------------------------------------
 
-    @traceable(name="rag_answer")
-    def answer(self, query, k=None, history=None):
-        """One finished answer as a dict (used by /ask and the evaluation scripts)."""
-        prep = self._prepare(query, k, history=history, search_text=self._rewrite(query, history))
+    @traceable(name="rag_answer", process_inputs=_hide_image)
+    def answer(self, query, k=None, history=None, image=None):
+        """One finished answer as a dict (used by /ask and the evaluation scripts).
+        `image` is an optional photo, as a base64 data URL; "image_note" in the result is what it showed."""
+        search_text = self._rewrite(query, history)
+        note = self._describe_image(image)
+        prep = self._prepare(query, k, history=history, search_text=build_search_text(note, search_text), image=image)
 
         if prep.cached:
             return {"answer": prep.cached["response"], "sources": prep.cached["sources"], "used_fallback": False,
-                    "full_context": prep.cached["full_context"], "from_cache": True}
+                    "full_context": prep.cached["full_context"], "from_cache": True, "image_note": note}
 
         if prep.out_of_scope:
             return {"answer": self.FALLBACK_MESSAGE, "sources": [], "used_fallback": True,
-                    "full_context": _full_context(prep.chunks, []), "from_cache": False}
+                    "full_context": _full_context(prep.chunks, []), "from_cache": False, "image_note": note}
 
         # The loop's own last turn is thrown away here: the structured call below
         # writes the answer again, in a shape that also names the sources it used.
@@ -101,7 +115,7 @@ class RAGPipeline:
         if result.hit_cap:
             # Report incompleteness honestly rather than guess at an answer built from partial steps
             return {"answer": CAP_MESSAGE, "sources": prep.unique_sources, "used_fallback": True,
-                    "full_context": full_context, "from_cache": False}
+                    "full_context": full_context, "from_cache": False, "image_note": note}
 
         prep.messages.append({"role": "user", "content": self.final_answer_instruction})
         final = self.client.chat.completions.parse(model=self.model, messages=prep.messages, response_format=FinalAnswer)
@@ -113,16 +127,19 @@ class RAGPipeline:
         )
         parsed = final.choices[0].message.parsed
 
-        self._maybe_cache(query, parsed.answer, prep.embedding, result.tool_outputs, full_context, parsed.sources_used, follow_up=bool(history))
-        return {"answer": parsed.answer, "sources": parsed.sources_used,
-                "used_fallback": False, "full_context": full_context, "from_cache": False}
+        self._maybe_cache(query, parsed.answer, prep.embedding, result.tool_outputs, full_context, parsed.sources_used,
+                          follow_up=bool(history), image=bool(image))
+        return {"answer": parsed.answer, "sources": parsed.sources_used, "used_fallback": False,
+                "full_context": full_context, "from_cache": False, "image_note": note}
 
-    def answer_stream(self, query, k=None, history=None):
+    def answer_stream(self, query, k=None, history=None, image=None):
         """The same question, answered live. Yields (event_name, data) pairs:
-          step    - one line of the trail the UI shows: {id, label, detail, status}
-          product - a live inventory result, drawn as a card: {sku, name, price, stock, sizes}
-          token   - a piece of the answer text: {t}
-          done    - the last event: {sources, cached, fallback}
+          step       - one line of the trail the UI shows: {id, label, detail, status}
+          image_note - only for a photo: what it showed, in words. The page keeps it in the conversation
+                       memory, because the photo itself is not sent again: {note}
+          product    - a live inventory result, drawn as a card: {sku, name, price, stock, sizes}
+          token      - a piece of the answer text: {t}
+          done       - the last event: {sources, cached, fallback}
         If something raises, the caller (src/api/streaming.py) turns it into an `error` event."""
         search_text = query
         if history:   # a follow-up: say so in the trail, then restate the question so it can be searched
@@ -130,8 +147,16 @@ class RAGPipeline:
             search_text = self._rewrite(query, history)
             yield rewrite_step(search_text if search_text != query else "")
 
+        if image:   # a photo: say so in the trail, put it into words, and search with those words too
+            yield image_step(status="running")
+            note = self._describe_image(image)
+            yield image_step(note)
+            if note:
+                yield "image_note", {"note": note}
+            search_text = build_search_text(note, search_text)
+
         yield search_step("Searching store documents", status="running")
-        prep = self._prepare(query, k, footer=True, history=history, search_text=search_text)
+        prep = self._prepare(query, k, footer=True, history=history, search_text=search_text, image=image)
 
         if prep.cached:
             yield search_step("Found a saved answer")
@@ -154,7 +179,8 @@ class RAGPipeline:
             return
 
         sources = resolve_sources(result.footer, prep.unique_sources)
-        self._maybe_cache(query, result.text, prep.embedding, result.tool_outputs, _full_context(prep.chunks, result.tool_outputs), sources, follow_up=bool(history))
+        self._maybe_cache(query, result.text, prep.embedding, result.tool_outputs, _full_context(prep.chunks, result.tool_outputs), sources,
+                          follow_up=bool(history), image=bool(image))
         yield "done", {"sources": sources, "cached": False, "fallback": False}
 
     # ---------- steps both entry points share -------------------------------------
@@ -183,14 +209,38 @@ class RAGPipeline:
             return query
         return rewritten[:REWRITE_MAX_CHARS] or query
 
-    def _prepare(self, query, k=None, footer=False, history=None, search_text=None):
+    def _describe_image(self, image):
+        """For a photo, one small model call puts it into words (what it is, its condition, any writing on it),
+        so the words can be searched against the store's documents - a photo can't be. No photo -> "", no call.
+        Any failure -> "": a problem here must never stop an answer, and the answering model still gets the photo."""
+        if not image:
+            return ""
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model, messages=build_describe_messages(image),
+                temperature=0, max_tokens=IMAGE_DESCRIBE_MAX_TOKENS)
+            cost_tracker.record(
+                model=self.model,
+                input_tokens=response.usage.prompt_tokens,
+                output_tokens=response.usage.completion_tokens,
+                label="describe_image",
+            )
+            note = " ".join((response.choices[0].message.content or "").split())   # one line, single spaces
+        except Exception:
+            logger.exception("Describing the photo failed; answering from the photo and the question alone")
+            return ""
+        return note[:IMAGE_NOTE_MAX_CHARS]
+
+    def _prepare(self, query, k=None, footer=False, history=None, search_text=None, image=None):
         """Embed the question, look in the cache, retrieve, and build the prompt.
         footer=True also asks the model to end with a SOURCES: line (streamed answers only).
-        `search_text` is what gets embedded and searched (a follow-up's rewrite); the model is still
-        shown `query` itself, after the earlier messages in `history`."""
+        `search_text` is what gets embedded and searched (a follow-up's rewrite, plus what a photo shows);
+        the model is still shown `query` itself, after the earlier messages in `history`.
+        `image` (a data URL) is attached to the question for the model. A photo question never reads the
+        cache: the cache is keyed on text, and the same words with a different photo need a different answer."""
         embedding = get_embedding(search_text or query)
 
-        cached = self.cache.check(query_embedding=embedding) if self.use_cache else None
+        cached = self.cache.check(query_embedding=embedding) if self.use_cache and not image else None
         if cached:
             return Prepared(embedding=embedding, cached={"response": _text(cached["response"]),
                                                          "full_context": _text(cached["full_context"]),
@@ -202,13 +252,15 @@ class RAGPipeline:
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages += [{"role": m["role"], "content": m["content"]} for m in history or []]
-        messages.append({"role": "user", "content": build_answer_prompt(query, chunks, sources, sources_footer=footer)})
+        prompt = build_answer_prompt(query, chunks, sources, sources_footer=footer, has_image=bool(image))
+        messages.append({"role": "user", "content": build_user_content(prompt, image)})
         return Prepared(embedding=embedding, chunks=chunks, sources=sources, messages=messages)
 
-    def _maybe_cache(self, query, text, embedding, tool_outputs, full_context, sources, follow_up=False):
-        """Save the answer for next time - but never if live data (stock, prices) went into it, and never
-        for a follow-up: an answer written with the conversation in view may lean on it ("yes, that one too")."""
-        if not tool_outputs and not follow_up and self.use_cache and text.strip():
+    def _maybe_cache(self, query, text, embedding, tool_outputs, full_context, sources, follow_up=False, image=False):
+        """Save the answer for next time - but never if live data (stock, prices) went into it, never
+        for a follow-up (an answer written with the conversation in view may lean on it: "yes, that one too"),
+        and never for a photo question (the cache key is the words alone, and the photo is part of the question)."""
+        if not tool_outputs and not follow_up and not image and self.use_cache and text.strip():
             self.cache.store(query, text, embedding, full_context, sources)
 
     @traceable(name="retrieve")
