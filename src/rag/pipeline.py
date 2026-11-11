@@ -265,10 +265,18 @@ class RAGPipeline:
 
     @traceable(name="retrieve")
     def retrieve(self, query_embedding, k=None):
+        hits = self.search(query_embedding, k=k)
+        return [h["text"] for h in hits], [h["source"] for h in hits], [h["distance"] for h in hits]
+
+    def search(self, query_embedding, k=None):
+        """The k closest chunks, best first, each with its id, text, source file and distance.
+        retrieve() uses it to answer questions; the evaluation uses it to score the search on its own."""
         k = k or self.k
         collection = get_collection()  # fetched fresh, every single call
         results = collection.query(query_embeddings=[query_embedding], n_results=k)
-        return results["documents"][0], [m["source"] for m in results["metadatas"][0]], results["distances"][0]
+        return [{"id": chunk_id, "text": text, "source": meta["source"], "distance": distance}
+                for chunk_id, text, meta, distance in zip(results["ids"][0], results["documents"][0],
+                                                          results["metadatas"][0], results["distances"][0])]
 
     def _is_out_of_scope(self, distances):
         return all(d >= self.relevance_threshold for d in distances)

@@ -128,6 +128,7 @@ def make_pipeline(monkeypatch, cache_hit=None, distances=(0.2,), pipeline_kwargs
     cache = FakeCache(cache_hit)
     costs = FakeCosts()
     collection = SimpleNamespace(query=lambda **kw: {
+        "ids": [[f"chunk-{i}" for i in range(len(distances))]],   # real Chroma always returns ids
         "documents": [["chunk about packs"] * len(distances)],
         "metadatas": [[{"source": name} for name in names]],
         "distances": [list(distances)],
