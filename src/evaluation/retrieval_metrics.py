@@ -53,8 +53,11 @@ def ndcg_at_k(retrieved, relevant, k):
     """Order quality of the top k compared with the best possible order (0 to 1)."""
     _check(relevant, k)
     relevant = set(relevant)
-    dcg = sum(1 / math.log2(position + 1)
-              for position, label in enumerate(retrieved[:k], start=1) if label in relevant)
+    dcg, counted = 0.0, set()
+    for position, label in enumerate(retrieved[:k], start=1):
+        if label in relevant and label not in counted:   # a repeated chunk earns credit only once
+            counted.add(label)
+            dcg += 1 / math.log2(position + 1)
     ideal = sum(1 / math.log2(position + 1) for position in range(1, min(len(relevant), k) + 1))
     return dcg / ideal
 

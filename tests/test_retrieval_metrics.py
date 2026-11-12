@@ -91,3 +91,8 @@ def test_average_scores_per_question_then_mean():
 def test_average_of_no_questions_is_an_error():
     with pytest.raises(ValueError):
         average_scores([])
+
+
+def test_a_repeated_chunk_cannot_push_ndcg_above_one():
+    assert ndcg_at_k(["c2", "c2"], {"c2"}, k=2) == pytest.approx(1.0)
+    assert ndcg_at_k(["c2", "c2", "c4"], RELEVANT, k=3) <= 1.0
