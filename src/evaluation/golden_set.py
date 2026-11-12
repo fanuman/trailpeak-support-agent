@@ -1,4 +1,4 @@
-"""Golden set v1 (13 Nov 2026): 80 questions in 10 categories, labelled at chunk level.
+"""Golden set v1 (13 Nov 2026): 84 questions in 11 categories, labelled at chunk level.
 
 Each case:
     id               short stable name, e.g. "pol-03" (used in reports and when comparing runs)
@@ -235,6 +235,20 @@ GOLDEN_SET = [
     {"id": "gap-07", "category": "known_gap",
      "query": "Is the cooler light enough to carry on a long hike?",
      "expected_chunks": ["product_catalog.txt#16"]},
+    # ---- Near-topic: sounds like the store (outdoors) but is general advice, not products,
+    #      stock or policies. Should be refused (or redirected). The hardest case for the gate.
+    {"id": "near-01", "category": "near_topic",
+     "query": "What are the best hiking trails in Nepal?",
+     "expected_chunks": [], "should_refuse": True},
+    {"id": "near-02", "category": "near_topic",
+     "query": "How do I treat a blister on a long hike?",
+     "expected_chunks": [], "should_refuse": True},
+    {"id": "near-03", "category": "near_topic",
+     "query": "What's the best time of year to climb Kilimanjaro?",
+     "expected_chunks": [], "should_refuse": True},
+    {"id": "near-04", "category": "near_topic",
+     "query": "How do I start a campfire without matches?",
+     "expected_chunks": [], "should_refuse": True},
     # ---- Off-topic: should be refused
     {"id": "off-01", "category": "off_topic",
      "query": "What's the capital of France?",

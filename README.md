@@ -256,8 +256,8 @@ same-origin; if you host the UI elsewhere, set `CORS_ORIGINS="https://my-ui.exam
 
 ![The evaluation flow: run_eval regression lane and ab_test lane](docs/images/evaluation-flow.svg)
 
-**`evaluation/`** — `golden_set.py` holds a fixed set of test questions with expected sources, the
-shared baseline both regression testing and A/B testing compare against. `metrics.py` scores
+**`evaluation/`** — `golden_set.py` holds the golden set (v1: 84 categorised questions, each with the chunks a good answer
+must use), the shared baseline both regression testing and A/B testing compare against. `metrics.py` scores
 faithfulness and answer relevancy (LLM-as-judge, structured output) plus context precision
 (deterministic — checks retrieved source *files* against expected ones) and context recall
 (LLM-judged — did retrieval find *enough*, tolerant of irrelevant content mixed in). `regression.py`
@@ -265,8 +265,53 @@ saves a baseline and flags any future run where a metric drops by more than a th
 `ab_test.py` runs the golden set through two differently-configured pipelines and compares real
 scores rather than eyeballing sample answers.
 
-**Latest run (after the streaming and sources-footer changes), against the saved baseline** — 5 golden questions,
-`REGRESSION_THRESHOLD` 0.1:
+### How the search and the refusal gate are tested
+
+Two evaluations score the system with no LLM calls (one embedding per question), so they are cheap enough to run
+after every change:
+
+- **`run_retrieval_eval.py`**: did the search return the right chunks, and how high? Each question lists the chunks a
+  good answer must use (`expected_chunks`, labelled as `<file>#<position>` with `inspect_chunks.py` and checked by hand).
+  Scores: recall@k, precision@k, hit rate, MRR and nDCG, per category (`retrieval_metrics.py`, unit-tested with
+  hand-worked numbers).
+- **`run_refusal_eval.py`**: does the distance gate refuse what it should? It treats `_is_out_of_scope()` as a yes/no
+  classifier over all 84 questions (precision, recall, false refusal rate; `behaviour_metrics.py`) and sweeps
+  `RELEVANCE_THRESHOLD` from 0.50 to 0.90.
+
+**Golden set v1**: 84 questions in 11 categories (policy, policy edge cases, product by name / need / code,
+price and stock, several products, known gaps, near-topic, off-topic, prompt injection), written in customer words
+rather than copied from the documents; 68 should be answered and 16 refused. It replaced 5 questions labelled by
+file, which could not show a difference: one question moved an average by 0.20 and recall was already 1.0.
+
+**Search, vector only, k = 5, 68 answerable questions:**
+
+| | Recall | MRR | nDCG |
+|---|---|---|---|
+| All | 0.966 | 0.861 | 0.880 |
+| Product codes (6) | 0.750 | 0.833 | 0.769 |
+| Several products (8) | 0.958 | 0.708 | 0.792 |
+| Known gaps (7) | 1.000 | 0.671 | 0.754 |
+
+The right chunks almost always come back; the weak spots are ordering and exact codes. "What is TP-PCK-003?" found
+nothing relevant, because an embedding carries no meaning for a code. Questions whose honest answer is "no" ("Is the
+cooler light enough to carry on a long hike?") and questions about several products rank the needed chunk lower.
+
+**Refusal gate: `RELEVANCE_THRESHOLD` 0.68 → 0.75.** The old value was set by hand. The sweep showed real questions
+at a closest distance of 0.299–0.685 and clearly off-topic ones at 0.814–0.941; at 0.68 one real question (the
+product code, at 0.685) was refused. 0.75 sits in the middle of that gap: 0 of 68 real questions refused, 8 of 8
+off-topic refused. Near-topic questions ("How do I treat a blister on a long hike?") land at 0.53–0.72, inside the
+real-question range, so no distance threshold can stop them without refusing real customers. Declining them, and
+prompt injections written in store language, is the model's job, which is measured next.
+
+**Limits:** 84 questions over 36 chunks (roughly ±0.09 on an overall score of 0.80); because chunks overlap, a few
+facts live in two chunks while only one is labelled, which costs some MRR.
+
+**Next:** re-run the LLM-judged harness on v1 and measure its run-to-run noise to set `REGRESSION_THRESHOLD`; check
+that the model declines near-topic and injection questions; freeze the baseline; then hybrid search (BM25 + RRF) and
+a re-ranker, compared on the same frozen set; then a CI gate.
+
+**LLM-judged harness, last run on the original 5 questions** (before golden set v1; to be re-run on v1), against the
+saved baseline, `REGRESSION_THRESHOLD` 0.1:
 
 | Metric | Baseline | Latest | How it is scored |
 |---|---|---|---|
@@ -345,7 +390,7 @@ Every limit and tuning knob lives once, in `src/core/config.py`. Each has a defa
 | `IMAGE_MAX_SIDE` | 1024 | Longest side in pixels the page resizes a photo to before sending |
 | `IMAGE_DESCRIBE_MAX_TOKENS`, `IMAGE_NOTE_MAX_CHARS` | 200, 500 | Size limits of the photo's description |
 | `RETRIEVAL_K` | 5 | Chunks returned by a search |
-| `RELEVANCE_THRESHOLD` | 0.68 | A chunk farther than this is "not close"; if all are, the question is out of scope |
+| `RELEVANCE_THRESHOLD` | 0.75 | A chunk farther than this is "not close"; if all are, the question is out of scope |
 | `MAX_AGENT_ITERATIONS` | 6 | Tool rounds before the loop gives up safely |
 | `CACHE_DISTANCE_THRESHOLD` | 0.05 | How close a new question must be to a saved one to reuse its answer |
 | `CACHE_TTL_SECONDS` | 3600 | How long a saved answer is kept |
@@ -374,10 +419,10 @@ incompatible until you re-run `ingest`.
 python -m pytest tests/
 ```
 
-142 tests, none of which call OpenAI, Chroma or Redis (they use fakes), so they run in about 3 seconds:
+161 tests, none of which call OpenAI, Chroma or Redis (they use fakes), so they run in about 3 seconds:
 `test_stream_events.py` (the pipeline's events, tools, cache, loop cap and sources), `test_sources_footer.py`
 (the footer, including text cut into pieces at every possible position), `test_sse.py` (the wire format and the generic error),
-`test_cost_summary.py` (the `/cost` totals, and that `/chat` is gone), `test_semantic_cache.py` (how the sources are saved and read back), `test_api_models.py` (what a request may contain, including the history limits), `test_inventory_tool.py` (finding a product by SKU or by name), `test_config.py` (settings, overrides and bad values), `test_images.py` (telling a real photo from a fake), `test_prompts.py` and `test_imports.py`.
+`test_cost_summary.py` (the `/cost` totals, and that `/chat` is gone), `test_semantic_cache.py` (how the sources are saved and read back), `test_api_models.py` (what a request may contain, including the history limits), `test_inventory_tool.py` (finding a product by SKU or by name), `test_config.py` (settings, overrides and bad values), `test_images.py` (telling a real photo from a fake), `test_retrieval_metrics.py` and `test_behaviour_metrics.py` (the evaluation maths, checked against hand-worked numbers), `test_prompts.py` and `test_imports.py`.
 `test_stream_events.py` also covers the photo path: the description, the search text, no cache, and a failed description.
 
 **`.github/workflows/`** — a two-job pipeline: `test` (fast import-checks) gates `build-and-push`
@@ -713,6 +758,11 @@ Everything below is deliberate and written down. Items marked **Fixed** were gap
   present alongside it. Both need a dedicated data-quality pass; a future "does each chunk's
   content match its claimed topic" check would be a different kind of metric than either.
   **Fixed**: the data files now read correctly (re-run `python -m src.ingest` to pick up the change).
+- **Some chunk labels are ambiguous.** Chunks overlap by 150 characters, so a few facts live in two chunks while the
+  golden set labels only one; the search can return the right text and still lose MRR. If it starts to matter: accept
+  any one of several chunks, or use graded relevance.
+- **The refusal gate cannot stop near-topic questions** (outdoor advice that is not about products, stock or policies):
+  they are as close to the documents as real questions. It relies on the model to decline them (measured next).
 - **A real content gap found via `context_recall`**: no tent in the catalog is actually rated for
   winter camping — the only tent (AlpinePeak) is explicitly 3-season only. Not a bug; a genuine
   product-catalog limitation worth a business decision (add a winter-rated SKU, or make the

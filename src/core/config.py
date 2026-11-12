@@ -28,7 +28,7 @@ DEFAULT_MODEL = "gpt-4o-mini"
 EMBEDDING_MODEL = "text-embedding-3-small"   # changing it makes the stored vectors incompatible until you re-run ingest
 
 # ---------- retrieval and the agent loop -------------------------------------------
-RELEVANCE_THRESHOLD = _setting("RELEVANCE_THRESHOLD", 0.68, float, minimum=0)   # a chunk farther than this is "not close"
+RELEVANCE_THRESHOLD = _setting("RELEVANCE_THRESHOLD", 0.75, float, minimum=0)   # a chunk farther than this is "not close"
 RETRIEVAL_K = _setting("RETRIEVAL_K", 5, minimum=1)                              # how many chunks a search returns
 MAX_AGENT_ITERATIONS = _setting("MAX_AGENT_ITERATIONS", 6, minimum=1)           # tool rounds before giving up
 
