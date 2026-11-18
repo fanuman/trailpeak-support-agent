@@ -1,0 +1,1673 @@
+{
+  "label": "vector-only-v1",
+  "golden_set": "v1",
+  "k": 5,
+  "embedding_model": "text-embedding-3-small",
+  "questions": 68,
+  "skipped_refuse": 12,
+  "averages": {
+    "precision": 0.2647058823529412,
+    "recall": 0.965686274509804,
+    "hit_rate": 0.9852941176470589,
+    "mrr": 0.8612745098039216,
+    "ndcg": 0.8798573877359118
+  },
+  "per_category": {
+    "policy": {
+      "precision": 0.28,
+      "recall": 1.0,
+      "hit_rate": 1.0,
+      "mrr": 0.8699999999999999,
+      "ndcg": 0.8957494526189862
+    },
+    "policy_edge": {
+      "precision": 0.24000000000000005,
+      "recall": 0.95,
+      "hit_rate": 1.0,
+      "mrr": 0.95,
+      "ndcg": 0.9264068122572591
+    },
+    "product_name": {
+      "precision": 0.22000000000000003,
+      "recall": 1.0,
+      "hit_rate": 1.0,
+      "mrr": 0.95,
+      "ndcg": 0.9630929753571458
+    },
+    "product_need": {
+      "precision": 0.34,
+      "recall": 1.0,
+      "hit_rate": 1.0,
+      "mrr": 0.9,
+      "ndcg": 0.9121292261674965
+    },
+    "product_code": {
+      "precision": 0.16666666666666666,
+      "recall": 0.75,
+      "hit_rate": 0.8333333333333334,
+      "mrr": 0.8333333333333334,
+      "ndcg": 0.7688578654609097
+    },
+    "price_stock": {
+      "precision": 0.2,
+      "recall": 1.0,
+      "hit_rate": 1.0,
+      "mrr": 0.9285714285714286,
+      "ndcg": 0.9472756790816368
+    },
+    "multi_product": {
+      "precision": 0.42500000000000004,
+      "recall": 0.9583333333333334,
+      "hit_rate": 1.0,
+      "mrr": 0.7083333333333334,
+      "ndcg": 0.7915998359684125
+    },
+    "known_gap": {
+      "precision": 0.2,
+      "recall": 1.0,
+      "hit_rate": 1.0,
+      "mrr": 0.6714285714285715,
+      "ndcg": 0.7542345811355592
+    }
+  },
+  "per_question": [
+    {
+      "id": "pol-01",
+      "category": "policy",
+      "query": "What is your return policy?",
+      "expected": [
+        "returns_policy.txt#0",
+        "returns_policy.txt#1"
+      ],
+      "retrieved": [
+        "returns_policy.txt#1",
+        "returns_policy.txt#0",
+        "returns_policy.txt#2",
+        "warranty_policy.txt#4",
+        "returns_policy.txt#4"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "pol-02",
+      "category": "policy",
+      "query": "What is your warranty policy?",
+      "expected": [
+        "warranty_policy.txt#0",
+        "warranty_policy.txt#1"
+      ],
+      "retrieved": [
+        "warranty_policy.txt#0",
+        "warranty_policy.txt#3",
+        "warranty_policy.txt#4",
+        "warranty_policy.txt#1",
+        "warranty_policy.txt#2"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 0.8772153153380493
+      }
+    },
+    {
+      "id": "pol-03",
+      "category": "policy",
+      "query": "How many days do I get to send something back?",
+      "expected": [
+        "returns_policy.txt#0"
+      ],
+      "retrieved": [
+        "returns_policy.txt#2",
+        "returns_policy.txt#4",
+        "returns_policy.txt#3",
+        "returns_policy.txt#1",
+        "returns_policy.txt#0"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.2,
+        "ndcg": 0.38685280723454163
+      }
+    },
+    {
+      "id": "pol-04",
+      "category": "policy",
+      "query": "How much does shipping cost within the US?",
+      "expected": [
+        "shipping_policy.txt#0"
+      ],
+      "retrieved": [
+        "shipping_policy.txt#0",
+        "shipping_policy.txt#4",
+        "shipping_policy.txt#1",
+        "returns_policy.txt#2",
+        "shipping_policy.txt#2"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "pol-05",
+      "category": "policy",
+      "query": "Once I mail a return, how soon will I see my money back?",
+      "expected": [
+        "returns_policy.txt#3"
+      ],
+      "retrieved": [
+        "returns_policy.txt#3",
+        "returns_policy.txt#2",
+        "returns_policy.txt#4",
+        "returns_policy.txt#0",
+        "shipping_policy.txt#0"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "pol-06",
+      "category": "policy",
+      "query": "How long is the guarantee on a backpack?",
+      "expected": [
+        "warranty_policy.txt#1"
+      ],
+      "retrieved": [
+        "warranty_policy.txt#1",
+        "warranty_policy.txt#0",
+        "product_catalog.txt#4",
+        "product_catalog.txt#5",
+        "product_catalog.txt#3"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "pol-07",
+      "category": "policy",
+      "query": "Which countries do you deliver to?",
+      "expected": [
+        "shipping_policy.txt#0",
+        "shipping_policy.txt#1"
+      ],
+      "retrieved": [
+        "shipping_policy.txt#2",
+        "shipping_policy.txt#1",
+        "shipping_policy.txt#0",
+        "shipping_policy.txt#4",
+        "shipping_policy.txt#3"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.5,
+        "ndcg": 0.6934264036172708
+      }
+    },
+    {
+      "id": "pol-08",
+      "category": "policy",
+      "query": "How do I start a return?",
+      "expected": [
+        "returns_policy.txt#2"
+      ],
+      "retrieved": [
+        "returns_policy.txt#2",
+        "returns_policy.txt#1",
+        "returns_policy.txt#4",
+        "returns_policy.txt#0",
+        "returns_policy.txt#3"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "pol-09",
+      "category": "policy",
+      "query": "What do I need to file a warranty claim?",
+      "expected": [
+        "warranty_policy.txt#3",
+        "warranty_policy.txt#4"
+      ],
+      "retrieved": [
+        "warranty_policy.txt#3",
+        "warranty_policy.txt#4",
+        "warranty_policy.txt#0",
+        "warranty_policy.txt#1",
+        "warranty_policy.txt#2"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "pol-10",
+      "category": "policy",
+      "query": "Can I change the delivery address on my order?",
+      "expected": [
+        "shipping_policy.txt#3"
+      ],
+      "retrieved": [
+        "shipping_policy.txt#3",
+        "shipping_policy.txt#2",
+        "returns_policy.txt#4",
+        "returns_policy.txt#2",
+        "shipping_policy.txt#4"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "edge-01",
+      "category": "policy_edge",
+      "query": "My boots got muddy on one hike and I don't like them. Can I still return them?",
+      "expected": [
+        "returns_policy.txt#0",
+        "returns_policy.txt#1"
+      ],
+      "retrieved": [
+        "returns_policy.txt#0",
+        "returns_policy.txt#1",
+        "returns_policy.txt#3",
+        "product_catalog.txt#9",
+        "product_catalog.txt#8"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "edge-02",
+      "category": "policy_edge",
+      "query": "The zipper on my tent broke after two months of normal use. What can I do?",
+      "expected": [
+        "warranty_policy.txt#1",
+        "warranty_policy.txt#2"
+      ],
+      "retrieved": [
+        "warranty_policy.txt#2",
+        "product_catalog.txt#2",
+        "product_catalog.txt#7",
+        "warranty_policy.txt#1",
+        "product_catalog.txt#3"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 0.8772153153380493
+      }
+    },
+    {
+      "id": "edge-03",
+      "category": "policy_edge",
+      "query": "I opened the water filter box but never used it. Can I send it back?",
+      "expected": [
+        "returns_policy.txt#1"
+      ],
+      "retrieved": [
+        "returns_policy.txt#1",
+        "product_catalog.txt#12",
+        "returns_policy.txt#2",
+        "returns_policy.txt#4",
+        "warranty_policy.txt#4"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "edge-04",
+      "category": "policy_edge",
+      "query": "Someone gave me a jacket as a present. Can I return it without their receipt?",
+      "expected": [
+        "returns_policy.txt#4"
+      ],
+      "retrieved": [
+        "returns_policy.txt#4",
+        "returns_policy.txt#1",
+        "returns_policy.txt#0",
+        "returns_policy.txt#2",
+        "warranty_policy.txt#4"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "edge-05",
+      "category": "policy_edge",
+      "query": "Do I pay for return shipping if I ordered the wrong size?",
+      "expected": [
+        "returns_policy.txt#2"
+      ],
+      "retrieved": [
+        "returns_policy.txt#2",
+        "returns_policy.txt#3",
+        "warranty_policy.txt#4",
+        "shipping_policy.txt#3",
+        "returns_policy.txt#4"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "edge-06",
+      "category": "policy_edge",
+      "query": "Tracking says my package was delivered but it isn't here. What should I do?",
+      "expected": [
+        "shipping_policy.txt#2"
+      ],
+      "retrieved": [
+        "shipping_policy.txt#2",
+        "shipping_policy.txt#3",
+        "returns_policy.txt#2",
+        "shipping_policy.txt#1",
+        "returns_policy.txt#4"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "edge-07",
+      "category": "policy_edge",
+      "query": "If I order on a Friday afternoon with standard shipping, when will it arrive?",
+      "expected": [
+        "shipping_policy.txt#0"
+      ],
+      "retrieved": [
+        "shipping_policy.txt#0",
+        "shipping_policy.txt#2",
+        "shipping_policy.txt#4",
+        "shipping_policy.txt#3",
+        "returns_policy.txt#2"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "edge-08",
+      "category": "policy_edge",
+      "query": "Will I have to pay customs fees on an order to the UK?",
+      "expected": [
+        "shipping_policy.txt#1"
+      ],
+      "retrieved": [
+        "shipping_policy.txt#1",
+        "shipping_policy.txt#4",
+        "shipping_policy.txt#0",
+        "shipping_policy.txt#2",
+        "returns_policy.txt#2"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "edge-09",
+      "category": "policy_edge",
+      "query": "My order is coming in two boxes. Will I be charged shipping twice?",
+      "expected": [
+        "shipping_policy.txt#4"
+      ],
+      "retrieved": [
+        "shipping_policy.txt#4",
+        "shipping_policy.txt#3",
+        "shipping_policy.txt#2",
+        "shipping_policy.txt#0",
+        "shipping_policy.txt#1"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "edge-10",
+      "category": "policy_edge",
+      "query": "My sleeping bag has a defect but it's been two months since delivery. Is it too late?",
+      "expected": [
+        "warranty_policy.txt#1",
+        "warranty_policy.txt#4"
+      ],
+      "retrieved": [
+        "shipping_policy.txt#3",
+        "warranty_policy.txt#1",
+        "product_catalog.txt#6",
+        "returns_policy.txt#1",
+        "warranty_policy.txt#3"
+      ],
+      "missed": [
+        "warranty_policy.txt#4"
+      ],
+      "scores": {
+        "precision": 0.2,
+        "recall": 0.5,
+        "hit_rate": 1.0,
+        "mrr": 0.5,
+        "ndcg": 0.38685280723454163
+      }
+    },
+    {
+      "id": "name-01",
+      "category": "product_name",
+      "query": "How heavy is the AlpinePeak tent?",
+      "expected": [
+        "product_catalog.txt#2"
+      ],
+      "retrieved": [
+        "product_catalog.txt#2",
+        "product_catalog.txt#3",
+        "product_catalog.txt#5",
+        "about_us.txt#0",
+        "product_catalog.txt#4"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "name-02",
+      "category": "product_name",
+      "query": "What sizes and colours does the StormShield jacket come in?",
+      "expected": [
+        "product_catalog.txt#1"
+      ],
+      "retrieved": [
+        "product_catalog.txt#0",
+        "product_catalog.txt#1",
+        "product_catalog.txt#6",
+        "product_catalog.txt#7",
+        "product_catalog.txt#5"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.5,
+        "ndcg": 0.6309297535714575
+      }
+    },
+    {
+      "id": "name-03",
+      "category": "product_name",
+      "query": "How warm is the CloudNine sleeping bag?",
+      "expected": [
+        "product_catalog.txt#6"
+      ],
+      "retrieved": [
+        "product_catalog.txt#6",
+        "product_catalog.txt#7",
+        "product_catalog.txt#1",
+        "product_catalog.txt#3",
+        "product_catalog.txt#2"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "name-04",
+      "category": "product_name",
+      "query": "How long does the NightWatch headlamp battery last?",
+      "expected": [
+        "product_catalog.txt#14"
+      ],
+      "retrieved": [
+        "product_catalog.txt#14",
+        "warranty_policy.txt#1",
+        "product_catalog.txt#15",
+        "warranty_policy.txt#0",
+        "product_catalog.txt#17"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "name-05",
+      "category": "product_name",
+      "query": "How much water can the HydroFlow filter clean before I need a new one?",
+      "expected": [
+        "product_catalog.txt#12"
+      ],
+      "retrieved": [
+        "product_catalog.txt#12",
+        "product_catalog.txt#11",
+        "returns_policy.txt#1",
+        "warranty_policy.txt#1",
+        "product_catalog.txt#5"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "name-06",
+      "category": "product_name",
+      "query": "How fast does the Campfire stove boil water?",
+      "expected": [
+        "product_catalog.txt#13"
+      ],
+      "retrieved": [
+        "product_catalog.txt#13",
+        "product_catalog.txt#14",
+        "product_catalog.txt#15",
+        "product_catalog.txt#16",
+        "warranty_policy.txt#1"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "name-07",
+      "category": "product_name",
+      "query": "How long will the BaseCamp cooler keep ice?",
+      "expected": [
+        "product_catalog.txt#16"
+      ],
+      "retrieved": [
+        "product_catalog.txt#16",
+        "product_catalog.txt#15",
+        "product_catalog.txt#17",
+        "warranty_policy.txt#1",
+        "product_catalog.txt#3"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "name-08",
+      "category": "product_name",
+      "query": "How long does the SolarCharge power bank take to charge from the sun?",
+      "expected": [
+        "product_catalog.txt#17"
+      ],
+      "retrieved": [
+        "product_catalog.txt#17",
+        "product_catalog.txt#15",
+        "product_catalog.txt#18",
+        "warranty_policy.txt#1",
+        "product_catalog.txt#14"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "name-09",
+      "category": "product_name",
+      "query": "How cold can it get before the FrostGuard gloves stop being enough?",
+      "expected": [
+        "product_catalog.txt#18",
+        "product_catalog.txt#19"
+      ],
+      "retrieved": [
+        "product_catalog.txt#18",
+        "product_catalog.txt#19",
+        "product_catalog.txt#7",
+        "product_catalog.txt#1",
+        "product_catalog.txt#6"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "name-10",
+      "category": "product_name",
+      "query": "Are the TrekLight poles telescoping?",
+      "expected": [
+        "product_catalog.txt#10"
+      ],
+      "retrieved": [
+        "product_catalog.txt#10",
+        "product_catalog.txt#3",
+        "product_catalog.txt#11",
+        "product_catalog.txt#5",
+        "product_catalog.txt#15"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "need-01",
+      "category": "product_need",
+      "query": "What tent works for winter camping?",
+      "expected": [
+        "product_catalog.txt#2",
+        "product_catalog.txt#3"
+      ],
+      "retrieved": [
+        "product_catalog.txt#7",
+        "product_catalog.txt#3",
+        "product_catalog.txt#2",
+        "product_catalog.txt#1",
+        "product_catalog.txt#19"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.5,
+        "ndcg": 0.6934264036172708
+      }
+    },
+    {
+      "id": "need-02",
+      "category": "product_need",
+      "query": "What should I wear on my feet for wet, rocky trails?",
+      "expected": [
+        "product_catalog.txt#8",
+        "product_catalog.txt#9"
+      ],
+      "retrieved": [
+        "product_catalog.txt#9",
+        "product_catalog.txt#8",
+        "product_catalog.txt#11",
+        "product_catalog.txt#19",
+        "returns_policy.txt#0"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "need-03",
+      "category": "product_need",
+      "query": "What can I use to make stream water safe to drink?",
+      "expected": [
+        "product_catalog.txt#11",
+        "product_catalog.txt#12"
+      ],
+      "retrieved": [
+        "product_catalog.txt#12",
+        "product_catalog.txt#11",
+        "returns_policy.txt#1",
+        "product_catalog.txt#14",
+        "warranty_policy.txt#1"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "need-04",
+      "category": "product_need",
+      "query": "I want hot coffee in the mornings on a backpacking trip. What should I bring?",
+      "expected": [
+        "product_catalog.txt#13",
+        "product_catalog.txt#14"
+      ],
+      "retrieved": [
+        "product_catalog.txt#14",
+        "product_catalog.txt#17",
+        "product_catalog.txt#13",
+        "product_catalog.txt#15",
+        "product_catalog.txt#16"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 0.9197207891481876
+      }
+    },
+    {
+      "id": "need-05",
+      "category": "product_need",
+      "query": "I need a light for walking around camp at night.",
+      "expected": [
+        "product_catalog.txt#14"
+      ],
+      "retrieved": [
+        "product_catalog.txt#14",
+        "product_catalog.txt#15",
+        "product_catalog.txt#13",
+        "product_catalog.txt#17",
+        "product_catalog.txt#3"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "need-06",
+      "category": "product_need",
+      "query": "My knees hurt on steep downhills. Is there anything that helps?",
+      "expected": [
+        "product_catalog.txt#10",
+        "product_catalog.txt#11"
+      ],
+      "retrieved": [
+        "product_catalog.txt#11",
+        "about_us.txt#0",
+        "product_catalog.txt#9",
+        "product_catalog.txt#10",
+        "product_catalog.txt#5"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 0.8772153153380493
+      }
+    },
+    {
+      "id": "need-07",
+      "category": "product_need",
+      "query": "I want to keep drinks cold for a long weekend of car camping.",
+      "expected": [
+        "product_catalog.txt#16"
+      ],
+      "retrieved": [
+        "product_catalog.txt#16",
+        "product_catalog.txt#17",
+        "product_catalog.txt#15",
+        "product_catalog.txt#18",
+        "product_catalog.txt#3"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "need-08",
+      "category": "product_need",
+      "query": "How can I keep my phone charged on a week-long hike?",
+      "expected": [
+        "product_catalog.txt#17",
+        "product_catalog.txt#18"
+      ],
+      "retrieved": [
+        "product_catalog.txt#17",
+        "product_catalog.txt#18",
+        "product_catalog.txt#15",
+        "product_catalog.txt#14",
+        "product_catalog.txt#3"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "need-09",
+      "category": "product_need",
+      "query": "My hands freeze when I go snowshoeing. What do you recommend?",
+      "expected": [
+        "product_catalog.txt#18",
+        "product_catalog.txt#19"
+      ],
+      "retrieved": [
+        "product_catalog.txt#19",
+        "product_catalog.txt#18",
+        "product_catalog.txt#11",
+        "product_catalog.txt#9",
+        "product_catalog.txt#1"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "need-10",
+      "category": "product_need",
+      "query": "What should I wear so I don't get soaked when it pours on a hike?",
+      "expected": [
+        "product_catalog.txt#0"
+      ],
+      "retrieved": [
+        "product_catalog.txt#1",
+        "product_catalog.txt#0",
+        "product_catalog.txt#9",
+        "product_catalog.txt#2",
+        "product_catalog.txt#3"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.5,
+        "ndcg": 0.6309297535714575
+      }
+    },
+    {
+      "id": "code-01",
+      "category": "product_code",
+      "query": "What is TP-PCK-003?",
+      "expected": [
+        "product_catalog.txt#4"
+      ],
+      "retrieved": [
+        "product_catalog.txt#13",
+        "product_catalog.txt#0",
+        "product_catalog.txt#10",
+        "product_catalog.txt#15",
+        "product_catalog.txt#11"
+      ],
+      "missed": [
+        "product_catalog.txt#4"
+      ],
+      "scores": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "hit_rate": 0.0,
+        "mrr": 0.0,
+        "ndcg": 0.0
+      }
+    },
+    {
+      "id": "code-02",
+      "category": "product_code",
+      "query": "Tell me about TP-STOVE-008.",
+      "expected": [
+        "product_catalog.txt#13"
+      ],
+      "retrieved": [
+        "product_catalog.txt#13",
+        "product_catalog.txt#14",
+        "product_catalog.txt#0",
+        "product_catalog.txt#15",
+        "product_catalog.txt#10"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "code-03",
+      "category": "product_code",
+      "query": "Is TP-BOOT-005 waterproof?",
+      "expected": [
+        "product_catalog.txt#8"
+      ],
+      "retrieved": [
+        "product_catalog.txt#8",
+        "product_catalog.txt#0",
+        "product_catalog.txt#18",
+        "product_catalog.txt#15",
+        "product_catalog.txt#2"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "code-04",
+      "category": "product_code",
+      "query": "What is item TP-GLV-012 good for?",
+      "expected": [
+        "product_catalog.txt#18",
+        "product_catalog.txt#19"
+      ],
+      "retrieved": [
+        "product_catalog.txt#18",
+        "product_catalog.txt#15",
+        "product_catalog.txt#14",
+        "product_catalog.txt#11",
+        "product_catalog.txt#10"
+      ],
+      "missed": [
+        "product_catalog.txt#19"
+      ],
+      "scores": {
+        "precision": 0.2,
+        "recall": 0.5,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 0.6131471927654584
+      }
+    },
+    {
+      "id": "code-05",
+      "category": "product_code",
+      "query": "How bright is TP-LAMP-009?",
+      "expected": [
+        "product_catalog.txt#14"
+      ],
+      "retrieved": [
+        "product_catalog.txt#14",
+        "product_catalog.txt#15",
+        "product_catalog.txt#13",
+        "product_catalog.txt#10",
+        "product_catalog.txt#3"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "code-06",
+      "category": "product_code",
+      "query": "How much does TP-POLE-006 weigh?",
+      "expected": [
+        "product_catalog.txt#10"
+      ],
+      "retrieved": [
+        "product_catalog.txt#10",
+        "product_catalog.txt#3",
+        "product_catalog.txt#13",
+        "product_catalog.txt#4",
+        "product_catalog.txt#11"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "stock-01",
+      "category": "price_stock",
+      "query": "Is the SummitCarry backpack in stock, and what does it cost?",
+      "expected": [
+        "product_catalog.txt#4"
+      ],
+      "retrieved": [
+        "product_catalog.txt#4",
+        "product_catalog.txt#3",
+        "product_catalog.txt#5",
+        "about_us.txt#0",
+        "product_catalog.txt#0"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "stock-02",
+      "category": "price_stock",
+      "query": "Do you have the CloudNine sleeping bag available right now?",
+      "expected": [
+        "product_catalog.txt#6"
+      ],
+      "retrieved": [
+        "product_catalog.txt#6",
+        "product_catalog.txt#7",
+        "product_catalog.txt#1",
+        "product_catalog.txt#3",
+        "product_catalog.txt#16"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "stock-03",
+      "category": "price_stock",
+      "query": "How much is the HydroFlow water filter?",
+      "expected": [
+        "product_catalog.txt#11"
+      ],
+      "retrieved": [
+        "product_catalog.txt#12",
+        "product_catalog.txt#11",
+        "returns_policy.txt#1",
+        "warranty_policy.txt#1",
+        "product_catalog.txt#5"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.5,
+        "ndcg": 0.6309297535714575
+      }
+    },
+    {
+      "id": "stock-04",
+      "category": "price_stock",
+      "query": "Is the BaseCamp cooler in stock?",
+      "expected": [
+        "product_catalog.txt#16"
+      ],
+      "retrieved": [
+        "product_catalog.txt#16",
+        "product_catalog.txt#15",
+        "product_catalog.txt#17",
+        "about_us.txt#0",
+        "product_catalog.txt#3"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "stock-05",
+      "category": "price_stock",
+      "query": "What's the price of the TrailBlazer boots?",
+      "expected": [
+        "product_catalog.txt#8"
+      ],
+      "retrieved": [
+        "product_catalog.txt#8",
+        "product_catalog.txt#9",
+        "shipping_policy.txt#0",
+        "shipping_policy.txt#1",
+        "returns_policy.txt#0"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "stock-06",
+      "category": "price_stock",
+      "query": "Can I buy the NightWatch headlamp today?",
+      "expected": [
+        "product_catalog.txt#14"
+      ],
+      "retrieved": [
+        "product_catalog.txt#14",
+        "product_catalog.txt#15",
+        "shipping_policy.txt#0",
+        "about_us.txt#0",
+        "product_catalog.txt#0"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "stock-07",
+      "category": "price_stock",
+      "query": "How much do the FrostGuard gloves cost?",
+      "expected": [
+        "product_catalog.txt#18"
+      ],
+      "retrieved": [
+        "product_catalog.txt#18",
+        "product_catalog.txt#19",
+        "product_catalog.txt#11",
+        "product_catalog.txt#1",
+        "product_catalog.txt#0"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "multi-01",
+      "category": "multi_product",
+      "query": "How much would the StormShield jacket and TrekLight poles cost together?",
+      "expected": [
+        "product_catalog.txt#0",
+        "product_catalog.txt#10"
+      ],
+      "retrieved": [
+        "product_catalog.txt#10",
+        "product_catalog.txt#0",
+        "product_catalog.txt#1",
+        "product_catalog.txt#3",
+        "product_catalog.txt#5"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "multi-02",
+      "category": "multi_product",
+      "query": "What would a tent and a sleeping bag cost me together?",
+      "expected": [
+        "product_catalog.txt#2",
+        "product_catalog.txt#6"
+      ],
+      "retrieved": [
+        "product_catalog.txt#6",
+        "product_catalog.txt#2",
+        "product_catalog.txt#3",
+        "product_catalog.txt#7",
+        "warranty_policy.txt#1"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "multi-03",
+      "category": "multi_product",
+      "query": "I want the stove and the water filter. What's the total?",
+      "expected": [
+        "product_catalog.txt#11",
+        "product_catalog.txt#13"
+      ],
+      "retrieved": [
+        "product_catalog.txt#13",
+        "product_catalog.txt#11",
+        "product_catalog.txt#12",
+        "warranty_policy.txt#1",
+        "product_catalog.txt#16"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "multi-04",
+      "category": "multi_product",
+      "query": "Are the headlamp and the power bank both in stock?",
+      "expected": [
+        "product_catalog.txt#14",
+        "product_catalog.txt#17"
+      ],
+      "retrieved": [
+        "product_catalog.txt#17",
+        "product_catalog.txt#15",
+        "product_catalog.txt#14",
+        "product_catalog.txt#18",
+        "about_us.txt#0"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 0.9197207891481876
+      }
+    },
+    {
+      "id": "multi-05",
+      "category": "multi_product",
+      "query": "Price for the boots plus the gloves?",
+      "expected": [
+        "product_catalog.txt#8",
+        "product_catalog.txt#18"
+      ],
+      "retrieved": [
+        "product_catalog.txt#19",
+        "product_catalog.txt#8",
+        "product_catalog.txt#18",
+        "product_catalog.txt#9",
+        "product_catalog.txt#11"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.5,
+        "ndcg": 0.6934264036172708
+      }
+    },
+    {
+      "id": "multi-06",
+      "category": "multi_product",
+      "query": "I'm buying the backpack, the poles and the headlamp. What's the total?",
+      "expected": [
+        "product_catalog.txt#4",
+        "product_catalog.txt#10",
+        "product_catalog.txt#14"
+      ],
+      "retrieved": [
+        "product_catalog.txt#3",
+        "product_catalog.txt#5",
+        "product_catalog.txt#10",
+        "product_catalog.txt#4",
+        "product_catalog.txt#14"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.6,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.3333333333333333,
+        "ndcg": 0.6182885020492784
+      }
+    },
+    {
+      "id": "multi-07",
+      "category": "multi_product",
+      "query": "Can I charge the headlamp from the power bank?",
+      "expected": [
+        "product_catalog.txt#14",
+        "product_catalog.txt#18"
+      ],
+      "retrieved": [
+        "product_catalog.txt#17",
+        "product_catalog.txt#15",
+        "product_catalog.txt#14",
+        "product_catalog.txt#18",
+        "product_catalog.txt#13"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.4,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.3333333333333333,
+        "ndcg": 0.5706417189553201
+      }
+    },
+    {
+      "id": "multi-08",
+      "category": "multi_product",
+      "query": "For a 4-day trip, price the backpack, sleeping bag and tent together.",
+      "expected": [
+        "product_catalog.txt#2",
+        "product_catalog.txt#4",
+        "product_catalog.txt#6"
+      ],
+      "retrieved": [
+        "product_catalog.txt#3",
+        "product_catalog.txt#2",
+        "product_catalog.txt#6",
+        "product_catalog.txt#7",
+        "product_catalog.txt#5"
+      ],
+      "missed": [
+        "product_catalog.txt#4"
+      ],
+      "scores": {
+        "precision": 0.4,
+        "recall": 0.6666666666666666,
+        "hit_rate": 1.0,
+        "mrr": 0.5,
+        "ndcg": 0.5307212739772434
+      }
+    },
+    {
+      "id": "gap-01",
+      "category": "known_gap",
+      "query": "Do you sell kayaks?",
+      "expected": [
+        "about_us.txt#0"
+      ],
+      "retrieved": [
+        "about_us.txt#0",
+        "product_catalog.txt#11",
+        "warranty_policy.txt#3",
+        "product_catalog.txt#0",
+        "shipping_policy.txt#1"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "gap-02",
+      "category": "known_gap",
+      "query": "Can you ship my order to Germany?",
+      "expected": [
+        "shipping_policy.txt#1"
+      ],
+      "retrieved": [
+        "shipping_policy.txt#2",
+        "shipping_policy.txt#1",
+        "shipping_policy.txt#4",
+        "shipping_policy.txt#0",
+        "shipping_policy.txt#3"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.5,
+        "ndcg": 0.6309297535714575
+      }
+    },
+    {
+      "id": "gap-03",
+      "category": "known_gap",
+      "query": "Will the water filter protect me from viruses when I travel abroad?",
+      "expected": [
+        "product_catalog.txt#12"
+      ],
+      "retrieved": [
+        "product_catalog.txt#12",
+        "product_catalog.txt#11",
+        "product_catalog.txt#18",
+        "warranty_policy.txt#1",
+        "returns_policy.txt#1"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "gap-04",
+      "category": "known_gap",
+      "query": "Is the sleeping bag OK for nights at -20F?",
+      "expected": [
+        "product_catalog.txt#6"
+      ],
+      "retrieved": [
+        "product_catalog.txt#6",
+        "product_catalog.txt#7",
+        "product_catalog.txt#14",
+        "product_catalog.txt#1",
+        "product_catalog.txt#2"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 1.0,
+        "ndcg": 1.0
+      }
+    },
+    {
+      "id": "gap-05",
+      "category": "known_gap",
+      "query": "Can I slow-cook a stew on your camping stove?",
+      "expected": [
+        "product_catalog.txt#14"
+      ],
+      "retrieved": [
+        "product_catalog.txt#13",
+        "product_catalog.txt#14",
+        "product_catalog.txt#16",
+        "product_catalog.txt#15",
+        "product_catalog.txt#17"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.5,
+        "ndcg": 0.6309297535714575
+      }
+    },
+    {
+      "id": "gap-06",
+      "category": "known_gap",
+      "query": "Can I take the headlamp diving?",
+      "expected": [
+        "product_catalog.txt#15"
+      ],
+      "retrieved": [
+        "product_catalog.txt#14",
+        "product_catalog.txt#15",
+        "product_catalog.txt#11",
+        "returns_policy.txt#1",
+        "product_catalog.txt#18"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.5,
+        "ndcg": 0.6309297535714575
+      }
+    },
+    {
+      "id": "gap-07",
+      "category": "known_gap",
+      "query": "Is the cooler light enough to carry on a long hike?",
+      "expected": [
+        "product_catalog.txt#16"
+      ],
+      "retrieved": [
+        "product_catalog.txt#15",
+        "product_catalog.txt#5",
+        "product_catalog.txt#17",
+        "product_catalog.txt#3",
+        "product_catalog.txt#16"
+      ],
+      "missed": [],
+      "scores": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.2,
+        "ndcg": 0.38685280723454163
+      }
+    }
+  ]
+}

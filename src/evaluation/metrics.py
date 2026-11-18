@@ -4,8 +4,8 @@ from openai import OpenAI
 
 from src.core.config import DEFAULT_MODEL
 from src.evaluation.prompts import (
-    extract_claims_prompt, verify_claim_prompt, answer_relevancy_prompt, 
-    context_recall_prompt, REFUSAL_PHRASES
+    extract_claims_prompt, verify_claim_prompt, answer_relevancy_prompt,
+    context_recall_prompt, refusal_check_prompt, REFUSAL_PHRASES
 )
 
 _client = OpenAI()
@@ -24,6 +24,10 @@ class RelevancyScore(BaseModel):
 
 class RecallVerdict(BaseModel):
     sufficient: bool
+    reasoning: str
+
+class RefusalVerdict(BaseModel):
+    declined: bool
     reasoning: str
 
 
@@ -85,6 +89,18 @@ def context_recall(question: str, context: str) -> RecallVerdict:
         model=DEFAULT_MODEL,
         messages=[{"role": "user", "content": context_recall_prompt(question, context)}],
         response_format=RecallVerdict
+    )
+    return response.choices[0].message.parsed
+
+
+def refusal_check(question: str, answer: str) -> RefusalVerdict:
+    """LLM-judged - did the assistant decline instead of doing what was asked? An honest "no, we don't
+    sell that" counts as answering, not declining. run_eval.py compares this with the golden set's
+    should_refuse, so the bot's refusals can be scored with precision and recall."""
+    response = _client.chat.completions.parse(
+        model=DEFAULT_MODEL,
+        messages=[{"role": "user", "content": refusal_check_prompt(question, answer)}],
+        response_format=RefusalVerdict
     )
     return response.choices[0].message.parsed
 

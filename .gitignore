@@ -24,3 +24,8 @@ docs/demo-photos/local/
 
 # Raw screen recordings for the demo video (large; the finished video is hosted elsewhere).
 docs/demo-video/raw/
+
+# Evaluation runs: every run writes a timestamped file to eval_results/. Only the frozen
+# reference runs in eval_results/baselines/ are committed (see README, Evaluation).
+eval_results/*
+!eval_results/baselines/

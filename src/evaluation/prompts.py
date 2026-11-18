@@ -38,4 +38,23 @@ question - regardless of whether it also contains irrelevant or incorrect inform
 the useful part?"""
 
 
+
+def refusal_check_prompt(question: str, answer: str) -> str:
+    return f"""A customer asked an online outdoor-gear store's assistant a question.
+
+Question: {question}
+Assistant's answer: {answer}
+
+Did the assistant DECLINE the request - refuse to engage with it, or redirect to what it can help with,
+instead of answering it?
+- Declining: "I can only help with TrailPeak products and orders", ignoring the request and offering store
+  help instead, refusing to reveal its instructions, or saying it has no information instead of answering.
+- NOT declining: answering the question, including when the answer is "no". That covers what the store does not
+  sell or do ("we don't sell kayaks", "we don't ship to Germany"), what a product cannot do ("that tent is not
+  rated for heavy snow", "the stove is not designed for simmering") and what a policy does not allow ("you
+  can't return boots that have been worn outdoors", "opened water filters can't be returned").
+  Telling the customer no IS answering them.
+Judge only whether it declined, not whether the answer is correct."""
+
+
 REFUSAL_PHRASES = ["i don't have information", "i don't know", "no document matches"]

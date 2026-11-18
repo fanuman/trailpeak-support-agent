@@ -1,0 +1,211 @@
+{
+  "golden_set": "v1",
+  "frozen_on": "2026-11-18",
+  "questions": {
+    "total": 84,
+    "answerable": 68,
+    "should_refuse": 16
+  },
+  "system": {
+    "retrieval": "vector only (Chroma, cosine)",
+    "k": 5,
+    "relevance_threshold": 0.75,
+    "model": "gpt-4o-mini",
+    "embedding_model": "text-embedding-3-small"
+  },
+  "regression_threshold": 0.04,
+  "retrieval": {
+    "source": "v1/retrieval_20261113_005149.json",
+    "note": "run on golden set v1 before the 4 near-topic questions were added; those are refuse questions, so the 68 scored questions are the same",
+    "averages": {
+      "precision": 0.265,
+      "recall": 0.966,
+      "hit_rate": 0.985,
+      "mrr": 0.861,
+      "ndcg": 0.88
+    },
+    "per_category": {
+      "policy": {
+        "precision": 0.28,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.87,
+        "ndcg": 0.896
+      },
+      "policy_edge": {
+        "precision": 0.24,
+        "recall": 0.95,
+        "hit_rate": 1.0,
+        "mrr": 0.95,
+        "ndcg": 0.926
+      },
+      "product_name": {
+        "precision": 0.22,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.95,
+        "ndcg": 0.963
+      },
+      "product_need": {
+        "precision": 0.34,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.9,
+        "ndcg": 0.912
+      },
+      "product_code": {
+        "precision": 0.167,
+        "recall": 0.75,
+        "hit_rate": 0.833,
+        "mrr": 0.833,
+        "ndcg": 0.769
+      },
+      "price_stock": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.929,
+        "ndcg": 0.947
+      },
+      "multi_product": {
+        "precision": 0.425,
+        "recall": 0.958,
+        "hit_rate": 1.0,
+        "mrr": 0.708,
+        "ndcg": 0.792
+      },
+      "known_gap": {
+        "precision": 0.2,
+        "recall": 1.0,
+        "hit_rate": 1.0,
+        "mrr": 0.671,
+        "ndcg": 0.754
+      }
+    }
+  },
+  "refusal_gate": {
+    "source": "v1/refusal_20261113_022746.json",
+    "threshold": 0.75,
+    "counts": {
+      "tp": 8,
+      "fp": 0,
+      "fn": 4,
+      "tn": 68
+    },
+    "scores": {
+      "precision": 1.0,
+      "recall": 0.667,
+      "f1": 0.8,
+      "accuracy": 0.95,
+      "false_positive_rate": 0.0
+    },
+    "note": "injections left out of these scores (the model's job); near-topic questions counted"
+  },
+  "llm": {
+    "sources": [
+      "v1/llm_20261118_010940.json",
+      "v1/llm_20261118_120732.json",
+      "v1/llm_20261118_122552.json",
+      "v1/llm_20261118_124425.json"
+    ],
+    "runs": 4,
+    "mean": {
+      "faithfulness": 0.977,
+      "answer_relevancy": 0.978,
+      "context_precision": 0.969,
+      "context_recall": 0.923
+    },
+    "sd": {
+      "faithfulness": 0.0105,
+      "answer_relevancy": 0.0085,
+      "context_precision": 0.0093,
+      "context_recall": 0.0074
+    },
+    "per_category_mean": {
+      "policy": {
+        "faithfulness": 0.992,
+        "answer_relevancy": 1.0,
+        "context_precision": 0.925,
+        "context_recall": 1.0
+      },
+      "policy_edge": {
+        "faithfulness": 0.933,
+        "answer_relevancy": 0.995,
+        "context_precision": 0.975,
+        "context_recall": 1.0
+      },
+      "product_name": {
+        "faithfulness": 0.988,
+        "answer_relevancy": 1.0,
+        "context_precision": 1.0,
+        "context_recall": 1.0
+      },
+      "product_need": {
+        "faithfulness": 0.966,
+        "answer_relevancy": 0.96,
+        "context_precision": 1.0,
+        "context_recall": 0.875
+      },
+      "product_code": {
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.892,
+        "context_precision": 1.0,
+        "context_recall": 0.833
+      },
+      "price_stock": {
+        "faithfulness": 1.0,
+        "answer_relevancy": 1.0,
+        "context_precision": 0.946,
+        "context_recall": 1.0
+      },
+      "multi_product": {
+        "faithfulness": 0.958,
+        "answer_relevancy": 1.0,
+        "context_precision": 0.922,
+        "context_recall": 1.0
+      },
+      "known_gap": {
+        "faithfulness": 1.0,
+        "answer_relevancy": 0.943,
+        "context_precision": 0.982,
+        "context_recall": 0.571
+      }
+    },
+    "declining": {
+      "note": "gate + model, all 84 questions; from the 3 runs with the final refusal judge (the first run used an earlier judge prompt)",
+      "counts_per_run": [
+        {
+          "tp": 16,
+          "fp": 2,
+          "fn": 0,
+          "tn": 66
+        },
+        {
+          "tp": 16,
+          "fp": 1,
+          "fn": 0,
+          "tn": 67
+        },
+        {
+          "tp": 16,
+          "fp": 2,
+          "fn": 0,
+          "tn": 66
+        }
+      ],
+      "false_refusals_per_run": [
+        [
+          "code-01",
+          "gap-01"
+        ],
+        [
+          "code-01"
+        ],
+        [
+          "code-01",
+          "gap-01"
+        ]
+      ]
+    }
+  }
+}

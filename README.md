@@ -260,8 +260,7 @@ same-origin; if you host the UI elsewhere, set `CORS_ORIGINS="https://my-ui.exam
 must use), the shared baseline both regression testing and A/B testing compare against. `metrics.py` scores
 faithfulness and answer relevancy (LLM-as-judge, structured output) plus context precision
 (deterministic — checks retrieved source *files* against expected ones) and context recall
-(LLM-judged — did retrieval find *enough*, tolerant of irrelevant content mixed in). `regression.py`
-saves a baseline and flags any future run where a metric drops by more than a threshold.
+(LLM-judged — did retrieval find *enough*, tolerant of irrelevant content mixed in). `regression.py` compares a run with the frozen baseline v1 and flags any metric that drops by more than 0.04.
 `ab_test.py` runs the golden set through two differently-configured pipelines and compares real
 scores rather than eyeballing sample answers.
 
@@ -306,25 +305,34 @@ prompt injections written in store language, is the model's job, which is measur
 **Limits:** 84 questions over 36 chunks (roughly ±0.09 on an overall score of 0.80); because chunks overlap, a few
 facts live in two chunks while only one is labelled, which costs some MRR.
 
-**Next:** re-run the LLM-judged harness on v1 and measure its run-to-run noise to set `REGRESSION_THRESHOLD`; check
-that the model declines near-topic and injection questions; freeze the baseline; then hybrid search (BM25 + RRF) and
-a re-ranker, compared on the same frozen set; then a CI gate.
+**LLM-judged answers (`run_eval.py`), golden set v1, mean of 4 runs of unchanged code:**
 
-**LLM-judged harness, last run on the original 5 questions** (before golden set v1; to be re-run on v1), against the
-saved baseline, `REGRESSION_THRESHOLD` 0.1:
-
-| Metric | Baseline | Latest | How it is scored |
+| Metric | Mean | Run-to-run SD | How it is scored |
 |---|---|---|---|
-| Faithfulness | 0.96 | 0.93 | LLM judge: is every claim supported by the context? |
-| Answer relevancy | 0.96 | 0.96 | LLM judge: does the answer address the question? |
-| Context precision | 1.00 | 1.00 | Code: are the cited source files the expected ones? |
-| Context recall | 0.80 | 0.80 | LLM judge: did retrieval find enough? |
+| Faithfulness | 0.977 | 0.011 | LLM judge: is every claim supported by the context? |
+| Answer relevancy | 0.978 | 0.009 | LLM judge: does the answer address the question? |
+| Context precision | 0.969 | 0.009 | Code: are the cited source files the expected ones? |
+| Context recall | 0.923 | 0.007 | LLM judge: was the context enough to answer? |
 
-**Read these numbers carefully.** Five questions is a small set, and two of the four metrics are scored by another
-LLM, which varies from run to run (see the `REGRESSION_THRESHOLD` and `context_precision` notes in Known gaps). The 0.03
-dip in faithfulness is inside the threshold and inside the noise documented there, so it is not read as a regression. The
-point of the harness is to notice a drop of the size that a real change causes, not to claim a precise score. The recall
-of 0.80 is a known catalog gap (no winter-rated tent), not a retrieval bug.
+**Declining (gate + model, all 84 questions):** every off-topic, near-topic and injection question was declined in
+every run (recall 1.0): the gate stops the clearly unrelated ones, the model the rest. False refusals were 1–2 of 68:
+"What is TP-PCK-003?" (the search cannot find product codes) and, in 2 of 3 runs, "Do you sell kayaks?" answered with
+"I don't have information" instead of "no". A judge (`refusal_check`) decides whether the model declined; its rubric
+says an honest "no" is an answer, after the first version counted "No, you can't return used boots" as a refusal.
+
+**Noise, and `REGRESSION_THRESHOLD` 0.1 → 0.04.** On unchanged code the averages moved by at most 0.024 (standard
+deviation about 0.01), although single questions moved a lot (15 of 68 changed faithfulness between runs). The
+threshold is about 3–4 times the noise: unchanged runs never trip it, while a drop of a few questions does; 0.1 would
+have missed drops of up to 0.09.
+
+**Baseline v1 is frozen** in `eval_results/baselines/v1.json` (retrieval, refusal gate, LLM means and standard
+deviations, with the raw runs in `v1/`; git tag `eval-baseline-v1`). `regression.py` compares a run with it
+(`run_eval.py --compare-baseline`) and never overwrites it.
+
+**Judge limits seen:** context recall marks "do you sell X?" questions as "not enough" (no document can prove
+absence), and faithfulness doubts correct totals because the calculator returns a bare subtotal.
+
+**Next:** hybrid search (BM25 + RRF) and a re-ranker, compared with baseline v1 on the same questions; then a CI gate.
 
 ## Cost tracking
 
@@ -419,10 +427,10 @@ incompatible until you re-run `ingest`.
 python -m pytest tests/
 ```
 
-161 tests, none of which call OpenAI, Chroma or Redis (they use fakes), so they run in about 3 seconds:
+167 tests, none of which call OpenAI, Chroma or Redis (they use fakes), so they run in about 3 seconds:
 `test_stream_events.py` (the pipeline's events, tools, cache, loop cap and sources), `test_sources_footer.py`
 (the footer, including text cut into pieces at every possible position), `test_sse.py` (the wire format and the generic error),
-`test_cost_summary.py` (the `/cost` totals, and that `/chat` is gone), `test_semantic_cache.py` (how the sources are saved and read back), `test_api_models.py` (what a request may contain, including the history limits), `test_inventory_tool.py` (finding a product by SKU or by name), `test_config.py` (settings, overrides and bad values), `test_images.py` (telling a real photo from a fake), `test_retrieval_metrics.py` and `test_behaviour_metrics.py` (the evaluation maths, checked against hand-worked numbers), `test_prompts.py` and `test_imports.py`.
+`test_cost_summary.py` (the `/cost` totals, and that `/chat` is gone), `test_semantic_cache.py` (how the sources are saved and read back), `test_api_models.py` (what a request may contain, including the history limits), `test_inventory_tool.py` (finding a product by SKU or by name), `test_config.py` (settings, overrides and bad values), `test_images.py` (telling a real photo from a fake), `test_retrieval_metrics.py` and `test_behaviour_metrics.py` (the evaluation maths, checked against hand-worked numbers), `test_regression.py` (the regression check: noise ignored, real drops caught), `test_prompts.py` and `test_imports.py`.
 `test_stream_events.py` also covers the photo path: the description, the search text, no cache, and a failed description.
 
 **`.github/workflows/`** — a two-job pipeline: `test` (fast import-checks) gates `build-and-push`
@@ -736,11 +744,9 @@ Everything below is deliberate and written down. Items marked **Fixed** were gap
 
 ### Evaluation
 
-- **`REGRESSION_THRESHOLD` (0.1) is an initial guess, not calibrated** against actual measured
-  run-to-run LLM-judge variance. A live example was found during Day 27's A/B testing: the same
-  question, essentially the same answer text, scored `faithfulness` 0.33 in one run and 1.00 in
-  another purely from judge inconsistency — exactly the kind of noise the threshold needs to
-  tolerate without either missing real regressions or crying wolf constantly.
+- **`REGRESSION_THRESHOLD` was a guess (0.1). Fixed:** measured over 4 runs of unchanged code (standard deviation
+  about 0.01) and set to 0.04. The same answer can still score 0.33 in one run and 1.00 in another, so a single
+  question's LLM score is never read on its own.
 - **`context_precision` depends on `parsed.sources_used`**, which is the model's own self-reported
   list of sources from the final structured-output call, not an independently verified ground
   truth — some precision variance between otherwise-similar runs may come from this self-report
