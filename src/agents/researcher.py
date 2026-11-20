@@ -5,7 +5,7 @@ keep, rather than being one agent's logic split into two functions."""
 from openai import OpenAI
 from src.core.config import DEFAULT_MODEL
 from src.core.embeddings import get_embedding
-from src.core.vectorstore import get_collection
+from src.core.vectorstore import dense_search
 from src.agents.state import ContentState
 
 _client = OpenAI()
@@ -13,10 +13,9 @@ _client = OpenAI()
 
 def researcher_node(state: ContentState) -> ContentState:
     query_embedding = get_embedding(state["topic"])
-    collection = get_collection()
-    results = collection.query(query_embeddings=[query_embedding], n_results=5)
-    chunks = results["documents"][0]
-    sources = [m["source"] for m in results["metadatas"][0]]
+    hits = dense_search(query_embedding, k=5)
+    chunks = [hit["text"] for hit in hits]
+    sources = [hit["source"] for hit in hits]
 
     prompt = f"""Extract the key facts relevant to this topic from the context below.
 Return plain factual bullet points only - no marketing language, no prose, just facts

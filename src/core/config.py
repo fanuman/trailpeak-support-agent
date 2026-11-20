@@ -30,6 +30,10 @@ EMBEDDING_MODEL = "text-embedding-3-small"   # changing it makes the stored vect
 # ---------- retrieval and the agent loop -------------------------------------------
 RELEVANCE_THRESHOLD = _setting("RELEVANCE_THRESHOLD", 0.75, float, minimum=0)   # a chunk farther than this is "not close"
 RETRIEVAL_K = _setting("RETRIEVAL_K", 5, minimum=1)                              # how many chunks a search returns
+RETRIEVAL_MODE = _setting("RETRIEVAL_MODE", "vector", str)       # "vector": by meaning; "hybrid": meaning + keywords (BM25), merged with RRF
+if RETRIEVAL_MODE not in ("vector", "hybrid"):
+    raise ValueError(f"Setting RETRIEVAL_MODE={RETRIEVAL_MODE!r} must be 'vector' or 'hybrid'")
+HYBRID_POOL = _setting("HYBRID_POOL", 20, minimum=1)             # hybrid: how many chunks each search contributes before merging
 MAX_AGENT_ITERATIONS = _setting("MAX_AGENT_ITERATIONS", 6, minimum=1)           # tool rounds before giving up
 
 # ---------- what a request may contain (the API checks it, the web page reads it) ----

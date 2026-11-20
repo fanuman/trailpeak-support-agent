@@ -1,23 +1,24 @@
 # src/ingest.py
-import os
+"""Split every file in data/ into chunks, embed them, and store them in Qdrant.
+
+Re-running always rebuilds the collection from scratch, so the stored chunks always match data/.
+Each chunk keeps a stable ID made from its file name and position (md5), so the golden set's labels
+("<file>#<position>") stay valid as long as the files do not change.
+
+    python -m src.ingest
+"""
 import glob
 import hashlib
+import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
-import chromadb
-from src.core.embeddings import get_embedding
-from src.core.vectorstore import get_collection, delete_collection
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# Delete any existing collection first - re-running ingestion should always
-# produce a clean, correctly-derived index from whatever's currently in
-# data/, not silently build on top of a collection whose chunk IDs may
-# have been assigned under a different (buggy) scheme.
-delete_collection()
-
-collection = get_collection()
+from src.core.embeddings import get_embedding
+from src.core.vectorstore import count, recreate_collection, upsert_chunks
 
 splitter = RecursiveCharacterTextSplitter(
     chunk_size=800,
@@ -25,42 +26,35 @@ splitter = RecursiveCharacterTextSplitter(
     separators=["\n\n", "\n", ". ", " ", ""]
 )
 
-txt_files = glob.glob("data/*.txt")
-print(f"Found {len(txt_files)} document(s)")
 
-all_ids, all_chunks, all_metadatas = [], [], []
+def load_chunks():
+    """Every chunk of every file in data/, with its stable ID, source file and position."""
+    chunks = []
+    for path in sorted(glob.glob("data/*.txt")):
+        filename = os.path.basename(path)
+        with open(path) as f:
+            text = f.read()
+        for position, piece in enumerate(splitter.split_text(text)):
+            chunk_id = hashlib.md5(f"{filename}-{position}".encode()).hexdigest()
+            chunks.append({"id": chunk_id, "text": piece, "source": filename, "position": position})
+    return chunks
 
-for txt_path in txt_files:
-    filename = os.path.basename(txt_path)
-    with open(txt_path, "r") as f:
-        text = f.read()
 
-    chunks = splitter.split_text(text)
-    for i, chunk in enumerate(chunks):
-        # Stable ID derived from filename + position within that file -
-        # independent of glob's file ordering and independent of how many
-        # other files exist alongside it. Fixes a real bug: the old
-        # chunk_{counter} scheme let adding a new file silently shift every
-        chunk_id = hashlib.md5(f"{filename}-{i}".encode()).hexdigest()
-        all_ids.append(chunk_id)
-        all_chunks.append(chunk)
-        all_metadatas.append({"source": filename})
+def main():
+    chunks = load_chunks()
+    print(f"{len(chunks)} chunks from {len({chunk['source'] for chunk in chunks})} files")
 
-print(f"\nTotal chunks across all documents: {len(all_chunks)}")
-print("Generating embeddings...")
+    print("Embedding...")
+    for done, chunk in enumerate(chunks, start=1):
+        chunk["embedding"] = get_embedding(chunk["text"])
+        if done % 20 == 0:
+            print(f"  {done}/{len(chunks)}")
 
-all_embeddings = []
-for i, chunk in enumerate(all_chunks):
-    all_embeddings.append(get_embedding(chunk))
-    if (i + 1) % 20 == 0:
-        print(f"  Embedded {i + 1}/{len(all_chunks)} chunks...")
+    # Rebuild only after every embedding succeeded: a failure above leaves the old collection untouched.
+    recreate_collection()
+    upsert_chunks(chunks)
+    print(f"Done. Qdrant collection now has {count()} chunks.")
 
-print("Storing in Chroma...")
-collection.add(
-    ids=all_ids,
-    documents=all_chunks,
-    embeddings=all_embeddings,
-    metadatas=all_metadatas
-)
 
-print(f"Done. Collection now has {collection.count()} chunks.")
+if __name__ == "__main__":
+    main()

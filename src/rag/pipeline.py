@@ -20,17 +20,17 @@ import json
 import logging
 from openai import OpenAI
 
-from src.core.config import (DEFAULT_MODEL, IMAGE_DESCRIBE_MAX_TOKENS, IMAGE_NOTE_MAX_CHARS, MAX_AGENT_ITERATIONS,
-                             RELEVANCE_THRESHOLD, RETRIEVAL_K, REWRITE_MAX_CHARS, REWRITE_MAX_TOKENS)
+from src.core.config import (DEFAULT_MODEL, HYBRID_POOL, IMAGE_DESCRIBE_MAX_TOKENS, IMAGE_NOTE_MAX_CHARS, MAX_AGENT_ITERATIONS,
+                             RELEVANCE_THRESHOLD, RETRIEVAL_K, RETRIEVAL_MODE, REWRITE_MAX_CHARS, REWRITE_MAX_TOKENS)
 from src.core.embeddings import get_embedding
-from src.core.vectorstore import get_collection
+from src.core.vectorstore import dense_search, hybrid_search
 from src.tools.inventory_tool import TOOL_SCHEMA as AVAILABILITY_SCHEMA, TOOL_FUNCTION as AVAILABILITY_FUNCTION, get_product
 from src.tools.calculator_tool import TOOL_SCHEMA as CALC_SCHEMA, TOOL_FUNCTION as CALC_FUNCTION
 from src.rag.prompts import (build_answer_prompt, build_describe_messages, build_rewrite_messages, build_search_text,
                              build_user_content, FINAL_ANSWER_INSTRUCTION, SYSTEM_PROMPT)
 from src.core.semantic_cache import SemanticCache
 from src.cost.tracker import cost_tracker
-from src.rag.models import FinalAnswer, ToolRequest, Turn, LoopResult, Prepared
+from src.rag.models import FinalAnswer, ToolRequest, Turn, LoopResult, Prepared, SearchResult
 from src.rag.events import image_step, rewrite_step, search_step, tool_step
 from src.rag.sources_footer import SourcesFooter, resolve_sources
 
@@ -72,7 +72,7 @@ def _hide_image(inputs):
 
 
 class RAGPipeline:
-    def __init__(self, model=DEFAULT_MODEL, relevance_threshold=RELEVANCE_THRESHOLD, k=RETRIEVAL_K, max_iterations=MAX_AGENT_ITERATIONS, final_answer_instruction=None, use_cache=True):
+    def __init__(self, model=DEFAULT_MODEL, relevance_threshold=RELEVANCE_THRESHOLD, k=RETRIEVAL_K, max_iterations=MAX_AGENT_ITERATIONS, final_answer_instruction=None, use_cache=True, retrieval_mode=RETRIEVAL_MODE):
         self.client = OpenAI()
         self.model = model
         self.relevance_threshold = relevance_threshold
@@ -82,6 +82,9 @@ class RAGPipeline:
         self.available_functions = {**AVAILABILITY_FUNCTION, **CALC_FUNCTION}
         self.cache = SemanticCache()
         self.use_cache = use_cache
+        if retrieval_mode not in ("vector", "hybrid"):
+            raise ValueError(f"retrieval_mode must be 'vector' or 'hybrid', not {retrieval_mode!r}")
+        self.retrieval_mode = retrieval_mode
         self.final_answer_instruction = final_answer_instruction or FINAL_ANSWER_INSTRUCTION
         self.FALLBACK_MESSAGE =  (
             "Hi! I'm the TrailPeak Outdoors assistant. I can help with product details, "
@@ -246,8 +249,8 @@ class RAGPipeline:
                                                          "full_context": _text(cached["full_context"]),
                                                          "sources": list(cached.get("sources") or [])})
 
-        chunks, sources, distances = self.retrieve(embedding, k=k)
-        if self._is_out_of_scope(distances):
+        chunks, sources, closest = self.retrieve(embedding, k=k, query_text=search_text or query)
+        if self._is_out_of_scope(closest):
             return Prepared(embedding=embedding, out_of_scope=True, chunks=chunks, sources=sources)
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
@@ -264,22 +267,26 @@ class RAGPipeline:
             self.cache.store(query, text, embedding, full_context, sources)
 
     @traceable(name="retrieve")
-    def retrieve(self, query_embedding, k=None):
-        hits = self.search(query_embedding, k=k)
-        return [h["text"] for h in hits], [h["source"] for h in hits], [h["distance"] for h in hits]
+    def retrieve(self, query_embedding, k=None, query_text=None):
+        result = self.search(query_embedding, k=k, query_text=query_text)
+        return [h["text"] for h in result.hits], [h["source"] for h in result.hits], result.closest
 
-    def search(self, query_embedding, k=None):
-        """The k closest chunks, best first, each with its id, text, source file and distance.
-        retrieve() uses it to answer questions; the evaluation uses it to score the search on its own."""
+    def search(self, query_embedding, k=None, query_text=None):
+        """The best chunks for a question, as a SearchResult: `hits` (the k chunks the model will read, best first:
+        id, text, source, position, distance) and `closest` (the distance of the chunk closest by meaning, which
+        the refusal gate checks). "vector" mode: the k closest by meaning. "hybrid" mode (needs query_text):
+        meaning and keywords (BM25) each shortlist HYBRID_POOL chunks, merged with RRF inside Qdrant."""
         k = k or self.k
-        collection = get_collection()  # fetched fresh, every single call
-        results = collection.query(query_embeddings=[query_embedding], n_results=k)
-        return [{"id": chunk_id, "text": text, "source": meta["source"], "distance": distance}
-                for chunk_id, text, meta, distance in zip(results["ids"][0], results["documents"][0],
-                                                          results["metadatas"][0], results["distances"][0])]
+        if self.retrieval_mode == "hybrid":
+            if not query_text:
+                raise ValueError("hybrid search needs the question's text")
+            hits, closest = hybrid_search(query_embedding, query_text, k, HYBRID_POOL)
+            return SearchResult(hits=hits, closest=closest)
+        hits = dense_search(query_embedding, k)
+        return SearchResult(hits=hits, closest=hits[0]["distance"] if hits else float("inf"))
 
-    def _is_out_of_scope(self, distances):
-        return all(d >= self.relevance_threshold for d in distances)
+    def _is_out_of_scope(self, closest):
+        return closest >= self.relevance_threshold
 
     # ---------- the ReAct loop (the one and only) ---------------------------------
 

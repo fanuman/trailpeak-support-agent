@@ -9,10 +9,12 @@ The gate refuses a question when even the closest chunk is at least RELEVANCE_TH
 Then the same questions are scored at other thresholds (a sweep) to show the trade-off.
 No LLM calls (one embedding per question).
 
-    python -m src.evaluation.run_refusal_eval
+    python -m src.evaluation.run_refusal_eval                 # the RETRIEVAL_MODE setting
+    python -m src.evaluation.run_refusal_eval --mode hybrid   # the hybrid search path
 
 Each run is saved to eval_results/refusal_<date>_<time>.json.
 """
+import argparse
 import json
 import os
 from datetime import datetime
@@ -21,7 +23,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.core.config import RETRIEVAL_K
+from src.core.config import RETRIEVAL_K, RETRIEVAL_MODE
 from src.core.embeddings import get_embedding
 from src.evaluation.behaviour_metrics import classification_scores, confusion_counts
 from src.evaluation.golden_set import GOLDEN_SET, VERSION
@@ -35,11 +37,10 @@ def measure(pipeline):
     """Search every question once; keep its closest distance and the gate's real decision."""
     rows = []
     for case in GOLDEN_SET:
-        hits = pipeline.search(get_embedding(case["query"]), k=RETRIEVAL_K)
-        distances = [hit["distance"] for hit in hits]
+        result = pipeline.search(get_embedding(case["query"]), k=RETRIEVAL_K, query_text=case["query"])
         rows.append({"id": case["id"], "category": case["category"], "query": case["query"],
-                     "should_refuse": case["should_refuse"], "closest": min(distances),
-                     "refused": pipeline._is_out_of_scope(distances)})
+                     "should_refuse": case["should_refuse"], "closest": result.closest,
+                     "refused": pipeline._is_out_of_scope(result.closest)})
     return rows
 
 
@@ -50,13 +51,13 @@ def score(rows, decisions):
     return counts, classification_scores(counts)
 
 
-def run():
-    pipeline = RAGPipeline(use_cache=False)
+def run(mode=RETRIEVAL_MODE):
+    pipeline = RAGPipeline(use_cache=False, retrieval_mode=mode)
     threshold = pipeline.relevance_threshold
     rows = measure(pipeline)
     counts, scores = score(rows, [row["refused"] for row in rows])
 
-    print(f"Refusal gate at RELEVANCE_THRESHOLD = {threshold} (golden set {VERSION}, injections left out)")
+    print(f"Refusal gate at RELEVANCE_THRESHOLD = {threshold}, mode={mode} (golden set {VERSION}, injections left out)")
     print(f"  TP {counts['tp']}  FP {counts['fp']}  FN {counts['fn']}  TN {counts['tn']}")
     print(f"  precision {scores['precision']:.3f} | recall {scores['recall']:.3f} | f1 {scores['f1']:.3f} | "
           f"false refusal rate {scores['false_positive_rate']:.3f} | accuracy {scores['accuracy']:.3f}")
@@ -100,11 +101,14 @@ def run():
     os.makedirs(RESULTS_DIR, exist_ok=True)
     path = os.path.join(RESULTS_DIR, f"refusal_{datetime.now():%Y%m%d_%H%M%S}.json")
     with open(path, "w") as f:
-        json.dump({"golden_set": VERSION, "threshold": threshold, "k": RETRIEVAL_K, "counts": counts,
+        json.dump({"golden_set": VERSION, "mode": mode, "threshold": threshold, "k": RETRIEVAL_K, "counts": counts,
                    "scores": scores, "sweep": sweep, "per_question": rows}, f, indent=2)
     print(f"\nSaved {path}")
     return scores
 
 
 if __name__ == "__main__":
-    run()
+    parser = argparse.ArgumentParser(description="Score the refusal gate on the golden set.")
+    parser.add_argument("--mode", choices=["vector", "hybrid"], default=RETRIEVAL_MODE,
+                        help="how to search (default: the RETRIEVAL_MODE setting)")
+    run(parser.parse_args().mode)

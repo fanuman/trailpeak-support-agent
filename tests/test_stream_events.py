@@ -1,12 +1,14 @@
 """Tests for the pipeline (src/rag/pipeline.py): the live events from answer_stream()
 and the finished dict from answer().
 
-No network, no Redis, no Chroma: OpenAI, the semantic cache, the vector store, the
+No network, no Redis, no Qdrant: OpenAI, the semantic cache, the vector store, the
 embedding call and the cost log are all replaced by tiny fakes, so these run anywhere
 (including CI) in well under a second.
 """
 import os
 from types import SimpleNamespace
+
+import pytest
 
 os.environ.setdefault("OPENAI_API_KEY", "sk-test-dummy-key-for-unit-tests")
 
@@ -127,17 +129,13 @@ def make_pipeline(monkeypatch, cache_hit=None, distances=(0.2,), pipeline_kwargs
     client = FakeOpenAI(**openai_kwargs)
     cache = FakeCache(cache_hit)
     costs = FakeCosts()
-    collection = SimpleNamespace(query=lambda **kw: {
-        "ids": [[f"chunk-{i}" for i in range(len(distances))]],   # real Chroma always returns ids
-        "documents": [["chunk about packs"] * len(distances)],
-        "metadatas": [[{"source": name} for name in names]],
-        "distances": [list(distances)],
-    })
+    hits = sorted(({"id": f"chunk-{i}", "text": "chunk about packs", "source": name, "position": i, "distance": d}
+                   for i, (name, d) in enumerate(zip(names, distances))), key=lambda hit: hit["distance"])
     monkeypatch.setenv("LANGSMITH_TRACING", "false")
     monkeypatch.setattr(pl, "OpenAI", lambda: client)
     monkeypatch.setattr(pl, "SemanticCache", lambda: cache)
     monkeypatch.setattr(pl, "get_embedding", lambda text: client.embedded.append(text) or [0.0])
-    monkeypatch.setattr(pl, "get_collection", lambda: collection)
+    monkeypatch.setattr(pl, "dense_search", lambda embedding, k: hits[:k])   # like the real one: closest first
     monkeypatch.setattr(pl, "cost_tracker", costs)
     return RAGPipeline(**(pipeline_kwargs or {})), client, cache, costs
 
@@ -647,3 +645,39 @@ def test_a_shortened_description_never_ends_in_four_dots():
     cut_right_after_a_full_stop = "x" * 89 + ". and then some more words"
     shown = image_step(cut_right_after_a_full_stop)[1]["detail"]
     assert shown == "x" * 89 + "..."
+
+
+# ---------- search(): vector and hybrid modes -----------------------------------
+
+def test_vector_mode_returns_the_closest_chunks_and_their_closest_distance(monkeypatch):
+    p, *_ = make_pipeline(monkeypatch, distances=(0.6, 0.3))
+    result = p.search([0.0])
+    assert [hit["distance"] for hit in result.hits] == [0.3, 0.6]
+    assert result.closest == 0.3
+
+
+def test_hybrid_mode_searches_with_the_question_text_and_the_pool(monkeypatch):
+    calls = []
+    p, *_ = make_pipeline(monkeypatch, pipeline_kwargs={"retrieval_mode": "hybrid"})
+    monkeypatch.setattr(pl, "hybrid_search", lambda embedding, text, k, pool: calls.append((text, k, pool)) or ([], 0.3))
+    result = p.search([0.0], query_text="What is TP-PCK-003?")
+    assert calls == [("What is TP-PCK-003?", 5, pl.HYBRID_POOL)]
+    assert result.closest == 0.3
+
+
+def test_in_hybrid_mode_the_gate_uses_the_closest_distance_not_the_hits(monkeypatch):
+    p, *_ = make_pipeline(monkeypatch, pipeline_kwargs={"retrieval_mode": "hybrid"})
+    fused = [{"id": "a", "text": "t", "source": "s", "position": 0, "distance": None}]   # RRF hits have no distance
+    monkeypatch.setattr(pl, "hybrid_search", lambda embedding, text, k, pool: (fused, 0.9))
+    assert p._prepare("What's the capital of France?").out_of_scope
+
+
+def test_hybrid_mode_needs_the_question_text(monkeypatch):
+    p, *_ = make_pipeline(monkeypatch, pipeline_kwargs={"retrieval_mode": "hybrid"})
+    with pytest.raises(ValueError):
+        p.search([0.0])
+
+
+def test_an_unknown_retrieval_mode_is_rejected(monkeypatch):
+    with pytest.raises(ValueError):
+        make_pipeline(monkeypatch, pipeline_kwargs={"retrieval_mode": "hybird"})

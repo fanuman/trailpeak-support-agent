@@ -49,3 +49,11 @@ class Prepared:
     @property
     def unique_sources(self):
         return list(dict.fromkeys(self.sources))   # no repeats, original order
+
+
+@dataclass
+class SearchResult:
+    """What a search finds. The refusal gate uses `closest`, not the hits: in hybrid mode the chunk
+    closest by meaning is not always among the hits, and the gate's threshold was measured on it."""
+    hits: list        # the chunks the model will read, best first: {"id", "text", "source", "position", "distance"}
+    closest: float    # distance of the chunk closest by meaning (the refusal gate checks this)
