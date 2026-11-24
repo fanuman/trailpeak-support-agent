@@ -332,7 +332,36 @@ deviations, with the raw runs in `v1/`; git tag `eval-baseline-v1`). `regression
 **Judge limits seen:** context recall marks "do you sell X?" questions as "not enough" (no document can prove
 absence), and faithfulness doubts correct totals because the calculator returns a bare subtotal.
 
-**Next:** hybrid search (BM25 + RRF) and a re-ranker, compared with baseline v1 on the same questions; then a CI gate.
+**Vector store: Chroma → Qdrant, behaviour unchanged.** Qdrant keeps two vectors per chunk, a dense one (meaning)
+and a sparse BM25 one (keywords), and can merge both searches on the server, so hybrid search does not need every
+chunk pulled into the app. The move was checked against baseline v1 before anything else changed: 67 of 68 result
+lists identical (one near-tie swapped #9 and #10), recall, hit rate and MRR identical, nDCG 0.8799 vs 0.8805, refusal
+gate identical (largest distance difference 0.0007).
+
+**Hybrid search (dense + BM25, merged with RRF, k = 60, 20 candidates from each): tested, not switched on.** The
+decision rule was written before the run: product-code recall must rise, overall recall and nDCG must not fall, and
+the refusal gate must not change.
+
+| | Vector | Hybrid |
+|---|---|---|
+| Recall@5, all | 0.966 | 0.934 |
+| nDCG@5, all | 0.880 | 0.855 |
+| Recall@5, product codes | 0.750 | 0.917 |
+| Recall@10, all | 0.993 | 0.985 |
+
+Hybrid found the product code that vector search missed ("What is TP-PCK-003?"), but lost a relevant chunk on 7
+other questions and gained on 2; the refusal gate was unchanged (it still uses the dense distance). Three causes:
+customer words the documents never use ("guarantee" for "warranty") leave BM25 matching the wrong word ("backpack");
+"hub" chunks that list every product type (the warranty table) match any product word; and with 36 chunks and 20
+candidates per search almost every chunk is in both lists, so RRF gives BM25 an equal say. Hybrid stays available
+(`RETRIEVAL_MODE=hybrid`) and the default stays `vector`: it should pay off on a large catalogue full of exact codes,
+not on this small, cleanly written one.
+
+**Where the headroom is:** vector search has the right chunk in the top 10 for 67 of 68 questions (recall@10 0.993)
+but puts it first less often (MRR 0.864). That is an ordering problem, which is a re-ranker's job.
+
+**Next:** a cross-encoder re-ranker over the top 10 candidates, keeping 5 for the model (tried on vector and hybrid
+candidates); then a CI gate.
 
 ## Cost tracking
 
@@ -427,7 +456,7 @@ incompatible until you re-run `ingest`.
 python -m pytest tests/
 ```
 
-167 tests, none of which call OpenAI, Chroma or Redis (they use fakes), so they run in about 3 seconds:
+172 tests, none of which call OpenAI, Qdrant or Redis (they use fakes), so they run in about 3 seconds:
 `test_stream_events.py` (the pipeline's events, tools, cache, loop cap and sources), `test_sources_footer.py`
 (the footer, including text cut into pieces at every possible position), `test_sse.py` (the wire format and the generic error),
 `test_cost_summary.py` (the `/cost` totals, and that `/chat` is gone), `test_semantic_cache.py` (how the sources are saved and read back), `test_api_models.py` (what a request may contain, including the history limits), `test_inventory_tool.py` (finding a product by SKU or by name), `test_config.py` (settings, overrides and bad values), `test_images.py` (telling a real photo from a fake), `test_retrieval_metrics.py` and `test_behaviour_metrics.py` (the evaluation maths, checked against hand-worked numbers), `test_regression.py` (the regression check: noise ignored, real drops caught), `test_prompts.py` and `test_imports.py`.
