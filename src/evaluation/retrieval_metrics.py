@@ -1,9 +1,10 @@
 """Retrieval metrics: score one ranked search result against the answer key.
 
 Every function takes:
-    retrieved  chunk labels in the order the search returned them, best first,
-               e.g. ["product_catalog.txt#4", "returns_policy.txt#0", ...]
-    relevant   the answer key for the question (golden_set "expected_chunks")
+    retrieved  labels in the order the search returned them, best first: one per chunk, naming
+               the section it came from, e.g. ["product_catalog.txt > NIGHTWATCH HEADLAMP", ...]
+               (two chunks of one section give the same label; it counts once)
+    relevant   the answer key for the question (golden_set "expected_sections")
     k          how many of the top results to look at
 
 They are pure functions (no API calls), so they cost nothing to run and are

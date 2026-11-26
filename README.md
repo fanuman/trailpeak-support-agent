@@ -225,11 +225,12 @@ could be worked around on Docker Compose (restart the `app` container alone, `ch
 survives), but has no equivalent on ECS: any task replacement is a wholly new task with an empty
 Chroma, so the old restart-based workaround would loop the same failure indefinitely there.
 
-**`ingest.py`** — deletes and recreates the Chroma collection from `data/*.txt` on every run,
-guaranteeing a clean rebuild rather than accumulating stale or colliding chunk IDs. Chunk IDs are
-content-derived hashes (filename + position), not a raw incrementing counter. Run manually,
-post-deployment, against whichever Chroma instance is currently live — no longer a CI step (see
-Known gaps for why that changed).
+**`ingest.py`** — splits each file in `data/` at its own headings (one chunk per product or policy topic; a
+section longer than 1,500 characters is split inside itself only), starts every chunk with a header naming its
+document, section and SKU, embeds the chunks and rebuilds the Qdrant collection from scratch (only after every
+embedding succeeded). Chunk IDs are hashes of filename + position; each chunk also stores its section, which is what
+the golden set labels. Run manually, post-deployment, against whichever Qdrant instance is live — no longer a CI
+step (see Known gaps for why that changed).
 
 **`core/secrets.py`** — fetches `OPENAI_API_KEY` from AWS Secrets Manager at startup via `boto3`,
 authenticating through whatever identity is already available (an IAM role in production,
@@ -269,10 +270,12 @@ scores rather than eyeballing sample answers.
 Two evaluations score the system with no LLM calls (one embedding per question), so they are cheap enough to run
 after every change:
 
-- **`run_retrieval_eval.py`**: did the search return the right chunks, and how high? Each question lists the chunks a
-  good answer must use (`expected_chunks`, labelled as `<file>#<position>` with `inspect_chunks.py` and checked by hand).
-  Scores: recall@k, precision@k, hit rate, MRR and nDCG, per category (`retrieval_metrics.py`, unit-tested with
-  hand-worked numbers).
+- **`run_retrieval_eval.py`**: did the search return the right sections, and how high? Each question lists the
+  sections a good answer must use (`expected_sections`, as `<file> > <SECTION>`, checked by hand with
+  `inspect_chunks.py`); a hit is any chunk from one of those sections, so labels survive chunking changes. The run
+  stops if a label matches no stored section and warns when a labelled section is split into several chunks.
+  Scores: recall@k, precision@k, hit rate, MRR and nDCG per category, plus the context tokens the model would
+  receive (`retrieval_metrics.py`, unit-tested with hand-worked numbers).
 - **`run_refusal_eval.py`**: does the distance gate refuse what it should? It treats `_is_out_of_scope()` as a yes/no
   classifier over all 84 questions (precision, recall, false refusal rate; `behaviour_metrics.py`) and sweeps
   `RELEVANCE_THRESHOLD` from 0.50 to 0.90.
@@ -302,8 +305,9 @@ off-topic refused. Near-topic questions ("How do I treat a blister on a long hik
 real-question range, so no distance threshold can stop them without refusing real customers. Declining them, and
 prompt injections written in store language, is the model's job, which is measured next.
 
-**Limits:** 84 questions over 36 chunks (roughly ±0.09 on an overall score of 0.80); because chunks overlap, a few
-facts live in two chunks while only one is labelled, which costs some MRR.
+**Limits:** 84 questions over a small corpus (roughly ±0.09 on an overall score of 0.80). Section labels say which
+product or topic, not which paragraph: if a long section is ever split, a hit on the wrong half still counts (the
+retrieval eval warns when a labelled section is split; none is today).
 
 **LLM-judged answers (`run_eval.py`), golden set v1, mean of 4 runs of unchanged code:**
 
@@ -360,8 +364,47 @@ not on this small, cleanly written one.
 **Where the headroom is:** vector search has the right chunk in the top 10 for 67 of 68 questions (recall@10 0.993)
 but puts it first less often (MRR 0.864). That is an ordering problem, which is a re-ranker's job.
 
-**Next:** a cross-encoder re-ranker over the top 10 candidates, keeping 5 for the model (tried on vector and hybrid
-candidates); then a CI gate.
+**Chunking by section.** The re-ranker test exposed a chunking problem before it measured anything useful. Cutting
+every 800 characters ignored product boundaries: 11 of 12 product descriptions never say their own name, so the name
+and SKU landed at the bottom of the previous product's chunk while the facts sat in a chunk that never said which
+product it was about. Cross-encoders read only a chunk's words, so they demoted those chunks, correctly, and the
+golden set (labelled around the broken chunks) scored that as a loss. Ingestion now splits at the documents' own
+headings (32 chunks, one per product or policy topic, 264-1,329 characters) and starts every chunk with a header
+such as `TRAILPEAK OUTDOORS - PRODUCT CATALOG | HYDROFLOW WATER FILTER | SKU TP-FILT-007`. Golden set v2 labels
+sections instead of chunk positions, so labels no longer break when the chunking or the documents change.
+
+| Vector search, k = 5, golden set v2 | 800-character chunks | Section chunks |
+|---|---|---|
+| Recall | 0.971 | 0.985 |
+| MRR | 0.959 | 0.980 |
+| nDCG | 0.948 | 0.971 |
+| Context sent to the model | about 720 tokens | 880 tokens (+22%) |
+
+The old chunks were re-scored against the same section labels, leniently (a chunk counts if any section it touches
+is expected). Most of the apparent jump from the Day 3 figures (MRR 0.861 → 0.980) comes from the new answer key; on
+the same key the chunking gain is about +0.02. k = 3 would cut the context to 530 tokens but misses broad and
+three-product questions, so k stays 5. The refusal gate held at 0.75 (TP 9 / FP 0 / FN 3 / TN 68, no false refusals),
+with a thin margin: the furthest real question is at 0.732, the nearest prompt injection at 0.758.
+
+**Hybrid and a re-ranker on section chunks: neither switched on.** Hybrid now ranks every product-code question first
+but still loses overall (recall@5 0.963 vs 0.985, MRR 0.944 vs 0.980): "money back" does not match "refund", and
+sections that list every product type (the warranty table, About us) match any product word. Four small ONNX
+cross-encoders (FastEmbed, no torch, 80-150 MB) re-ranked the top 10: none beat the vector order (best MRR 0.953 vs
+0.980), and each added 266-676 ms at p95. Vector search already has every expected section in its top 10 and the right
+one first 98% of the time, so little is left to reorder. Re-rankers also slow down with longer chunks: the fastest
+went from 134 ms to 279 ms at p95 when chunks became whole sections. The models were compared on the golden set
+itself, which is model selection on test data, acceptable here only because none came close.
+
+**Answers (LLM-judged, one run against baseline v1, same 84 questions):** no regression. Faithfulness 0.993 (baseline
+0.977), relevancy 0.982 (0.978), context recall 0.926 (0.923), context precision 0.934 (0.969). Context precision is
+scored by file, and section chunks mix files more often (a backpack-guarantee question now gets the warranty table
+and the backpack's page): the drop is about four times its run-to-run noise, so it is real, but the answers improved.
+"What is TP-PCK-003?", refused in every baseline run, is now answered; the one false refusal left is "Do you sell
+kayaks?". Baseline v1 stays the answer-level reference, because one run is not a baseline.
+
+**Next:** context precision by section instead of by file; query routing (hybrid only for questions that contain a
+product code) as a measured option; the CI gate (retrieval and refusal checks on every push); then the remaining
+Phase 3 work (remove Chroma, connect to Redis only when the cache is used).
 
 ## Cost tracking
 
@@ -456,7 +499,7 @@ incompatible until you re-run `ingest`.
 python -m pytest tests/
 ```
 
-172 tests, none of which call OpenAI, Qdrant or Redis (they use fakes), so they run in about 3 seconds:
+195 tests, none of which call OpenAI, Qdrant or Redis (they use fakes), so they run in about 3 seconds:
 `test_stream_events.py` (the pipeline's events, tools, cache, loop cap and sources), `test_sources_footer.py`
 (the footer, including text cut into pieces at every possible position), `test_sse.py` (the wire format and the generic error),
 `test_cost_summary.py` (the `/cost` totals, and that `/chat` is gone), `test_semantic_cache.py` (how the sources are saved and read back), `test_api_models.py` (what a request may contain, including the history limits), `test_inventory_tool.py` (finding a product by SKU or by name), `test_config.py` (settings, overrides and bad values), `test_images.py` (telling a real photo from a fake), `test_retrieval_metrics.py` and `test_behaviour_metrics.py` (the evaluation maths, checked against hand-worked numbers), `test_regression.py` (the regression check: noise ignored, real drops caught), `test_prompts.py` and `test_imports.py`.
@@ -795,7 +838,8 @@ Everything below is deliberate and written down. Items marked **Fixed** were gap
   **Fixed**: the data files now read correctly (re-run `python -m src.ingest` to pick up the change).
 - **Some chunk labels are ambiguous.** Chunks overlap by 150 characters, so a few facts live in two chunks while the
   golden set labels only one; the search can return the right text and still lose MRR. If it starts to matter: accept
-  any one of several chunks, or use graded relevance.
+  any one of several chunks, or use graded relevance. **Fixed:** chunks are now whole sections and the golden set
+  labels sections, so overlap no longer splits a fact across two labels.
 - **The refusal gate cannot stop near-topic questions** (outdoor advice that is not about products, stock or policies):
   they are as close to the documents as real questions. It relies on the model to decline them (measured next).
 - **A real content gap found via `context_recall`**: no tent in the catalog is actually rated for

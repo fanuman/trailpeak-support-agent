@@ -4,7 +4,8 @@ Each chunk is one Qdrant point:
   id       a UUID made from the chunk's md5 ID (Qdrant ids must be UUIDs or integers)
   vectors  "dense": the OpenAI embedding (text-embedding-3-small, 1536 numbers) - search by meaning
            "bm25":  a sparse BM25 vector made locally by FastEmbed - search by exact words
-  payload  {"text", "source", "position"}  (position = the chunk's number within its file)
+  payload  {"text", "source", "section", "position"}  (section = the heading the chunk sits under,
+           position = the chunk's number within its file)
 Qdrant applies IDF to "bm25" at search time (modifier=IDF), from the current collection.
 
 Only this file talks to the Qdrant client. The rest of the app gets plain dicts back, so it does not
@@ -61,13 +62,14 @@ def recreate_collection():
 
 
 def upsert_chunks(chunks):
-    """Store chunks, each a dict with id, text, source, position and embedding (the dense vector)."""
+    """Store chunks, each a dict with id, text, source, section, position and embedding (the dense vector)."""
     sparse = list(_bm25().embed([chunk["text"] for chunk in chunks]))
     points = [
         models.PointStruct(
             id=point_id(chunk["id"]),
             vector={DENSE: chunk["embedding"], SPARSE: _sparse(vector)},
-            payload={"text": chunk["text"], "source": chunk["source"], "position": chunk["position"]},
+            payload={"text": chunk["text"], "source": chunk["source"], "section": chunk["section"],
+                     "position": chunk["position"]},
         )
         for chunk, vector in zip(chunks, sparse)
     ]
@@ -81,6 +83,7 @@ def count():
 def _hit(point, with_distance=True):
     """A search result as a plain dict. Qdrant's cosine score is similarity (1 = identical); distance = 1 - score."""
     return {"id": str(point.id), "text": point.payload["text"], "source": point.payload["source"],
+            "section": point.payload.get("section"),  # None for chunks stored before sections existed
             "position": point.payload["position"], "distance": 1 - point.score if with_distance else None}
 
 
@@ -111,12 +114,12 @@ def hybrid_search(embedding, question, k, pool):
 
 
 def all_chunks():
-    """Every stored chunk (id, text, source, position), read page by page."""
+    """Every stored chunk (id, text, source, section, position), read page by page."""
     chunks, offset = [], None
     while True:
         points, offset = get_client().scroll(COLLECTION_NAME, limit=256, offset=offset,
                                              with_payload=True, with_vectors=False)
         chunks += [{"id": str(p.id), "text": p.payload["text"], "source": p.payload["source"],
-                    "position": p.payload["position"]} for p in points]
+                    "section": p.payload.get("section"), "position": p.payload["position"]} for p in points]
         if offset is None:
             return chunks
